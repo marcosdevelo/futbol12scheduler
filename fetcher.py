@@ -19,14 +19,14 @@ class FootballFetcher:
         self.leaguesStandings = []
         self.fixture = []
 
-    def startFetchRoutine(self):
-        self.getFixture()
-        self.getStandings()
+    def start(self):
+        self.__getFixture()
+        self.__getStandings()
         logger.info("Final Fetched data")
         logger.info(f"Leagues Standings: {self.leaguesStandings}")
         logger.info(f"Fixture: {self.fixture}")
 
-    def getFixture(self):
+    def __getFixture(self):
         url = f"{BASE_URL}/fixtures"
         body = {"team": TEAM_ID, "next": 6}
         try:
@@ -37,14 +37,14 @@ class FootballFetcher:
         except requests.RequestException as e:
             logger.error(f"Failed to fetch fixture data: {e}")
 
-    def getStandings(self):
+    def __getStandings(self):
         current_year = datetime.now().year
-        leagues = self.getLeagues()
+        leagues = self.__getLeagues()
         if leagues:
             for league in leagues:
-                self.getLeagueStandings(league["league"]["id"], current_year)
+                self.__getLeagueStandings(league["league"]["id"], current_year)
 
-    def getLeagues(self):
+    def __getLeagues(self):
         body = {
             "team": TEAM_ID,
         }
@@ -58,7 +58,7 @@ class FootballFetcher:
             logger.error(f"Failed to fetch leagues data: {e}")
             return None
 
-    def getLeagueStandings(self, leagueId, season):
+    def __getLeagueStandings(self, leagueId, season):
         body = {"league": leagueId, "season": season}
         url = f"{BASE_URL}/standings"
         try:

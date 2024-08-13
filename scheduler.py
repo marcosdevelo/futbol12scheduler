@@ -8,7 +8,7 @@ class Scheduler:
         self.fetcher = fetcher
 
     def fetch_function(self):
-        self.fetcher.startFetchRoutine()
+        self.fetcher.start()
 
     def start(self):
         print("Starting Scheduler")
