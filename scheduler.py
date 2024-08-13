@@ -1,12 +1,17 @@
 import atexit
 from apscheduler.schedulers.background import BackgroundScheduler
 
+
 class Scheduler:
-    def __init__(self, fetch_function, interval_minutes=1):
-        self.fetch_function = fetch_function
+    def __init__(self, fetcher):
         self.scheduler = BackgroundScheduler()
-        self.interval_minutes = interval_minutes
+        self.fetcher = fetcher
+
+    def fetch_function(self):
+        self.fetcher.startFetchRoutine()
+
     def start(self):
+        print("Starting Scheduler")
         self.scheduler.add_job(func=self.fetch_function, trigger="interval", minutes=1)
         self.scheduler.start()
         # Shut down the scheduler when exiting the app

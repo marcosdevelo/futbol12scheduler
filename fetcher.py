@@ -1,56 +1,72 @@
 import requests
 from datetime import datetime
+import logging
+
 API_KEY = "e622b1469cdad8fb39da43fde1490356"
-BASE_URL = "https://v3.football.api-sports.io/leagues?team=451"
+BASE_URL = "https://v3.football.api-sports.io"
 TEAM_ID = 451
-headers = {
-    'x-apisports-key': API_KEY
-}
+headers = {"x-apisports-key": API_KEY}
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+
 class FootballFetcher:
     def __init__(self):
-        self.standings = []
+        self.leaguesStandings = []
         self.fixture = []
-
 
     def startFetchRoutine(self):
         self.getFixture()
         self.getStandings()
+        logger.info("Final Fetched data")
+        logger.info(f"Leagues Standings: {self.leaguesStandings}")
+        logger.info(f"Fixture: {self.fixture}")
 
     def getFixture(self):
-        games_in_advance = 6
-        url = f"{BASE_URL}/fixtures?team={TEAM_ID}&next={games_in_advance}"
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
+        url = f"{BASE_URL}/fixtures"
+        body = {"team": TEAM_ID, "next": 6}
+        try:
+            response = requests.get(url, headers=headers, params=body)
+            response.raise_for_status()
             data = response.json()
-            self.fixture = data.response
-        else:
-            print(f"Failed to fetch data: {response.status_code}")
+            self.fixture = data["response"]
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch fixture data: {e}")
 
     def getStandings(self):
         current_year = datetime.now().year
         leagues = self.getLeagues()
         if leagues:
             for league in leagues:
-                self.getLeagueStandings(league.league.id,current_year)
+                self.getLeagueStandings(league["league"]["id"], current_year)
 
     def getLeagues(self):
-        url = f"{BASE_URL}/leagues?team={TEAM_ID}"
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
+        body = {
+            "team": TEAM_ID,
+        }
+        url = f"{BASE_URL}/leagues"
+        try:
+            response = requests.get(url, headers=headers, params=body)
+            response.raise_for_status()
             data = response.json()
-            # Process and map data to Firestore here
-            print("Fetched data:", data)
-            return data
-        else:
-            print(f"Failed to fetch data: {response.status_code}")
+            return data["response"]
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch leagues data: {e}")
+            return None
 
     def getLeagueStandings(self, leagueId, season):
-        url = f"{BASE_URL}/standings?league={leagueId}&season={season}"
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
+        body = {"league": leagueId, "season": season}
+        url = f"{BASE_URL}/standings"
+        try:
+            response = requests.get(url, headers=headers, params=body)
+            response.raise_for_status()
             data = response.json()
-            self.standings.append(data)
-            print("Fetched data:", data)
-        else:
-            print(f"Failed to fetch data: {response.status_code}")
-
+            if len(data["response"]) > 0 and "league" in data["response"][0]:
+                leagueWithStandings = data["response"][0]["league"]
+                self.leaguesStandings.append(leagueWithStandings)
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch standings data for league {leagueId}: {e}")
