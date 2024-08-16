@@ -1,18 +1,22 @@
 import atexit
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.blocking import BlockingScheduler
+import asyncio
 
 
 class Scheduler:
     def __init__(self, fetcher):
-        self.scheduler = BackgroundScheduler()
+        self.scheduler = BlockingScheduler()
         self.fetcher = fetcher
 
     def fetch_function(self):
-        self.fetcher.start()
+        asyncio.run(self.fetcher.start())
 
     def start(self):
-        print("Starting Scheduler")
-        self.scheduler.add_job(func=self.fetch_function, trigger="interval", minutes=1)
-        self.scheduler.start()
-        # Shut down the scheduler when exiting the app
+        # Register the shutdown callback before starting the scheduler
         atexit.register(lambda: self.scheduler.shutdown())
+
+        # Schedule the job
+        self.scheduler.add_job(func=self.fetch_function, trigger="interval", minutes=1)
+
+        # Start the blocking scheduler (this will keep the script running)
+        self.scheduler.start()

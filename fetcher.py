@@ -1,31 +1,34 @@
 import httpx
-import asyncio
 from datetime import datetime
-import logging
+from f12scheduler.firebase_manager import FirestoreManager
+from f12scheduler.logging_config import configure_logging
 
+COLLECTION_NAME = "boca-data"
 API_KEY = "e622b1469cdad8fb39da43fde1490356"
 BASE_URL = "https://v3.football.api-sports.io"
 TEAM_ID = 451
 headers = {"x-apisports-key": API_KEY}
 current_year = datetime.now().year
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
 
 
 class FootballFetcher:
     def __init__(self):
         self.leaguesStandings = []
         self.fixture = []
+        self.logger = configure_logging()
 
     async def start(self):
         await self.__getFixture()
         await self.__getStandings()
-        logger.info("Final Fetched data")
-        logger.info(f"Leagues Standings: {self.leaguesStandings}")
-        logger.info(f"Fixture: {self.fixture}")
+        await self.__storeData()
+
+    async def __storeData(self):
+        firestore_manager = FirestoreManager()
+        collection_name = COLLECTION_NAME
+        document_id = COLLECTION_NAME
+        data = {"leaguesStandings": self.leaguesStandings, "fixture": self.fixture}
+
+        firestore_manager.add_data(collection_name, document_id, data)
 
     async def __getFixture(self):
         url = f"{BASE_URL}/fixtures"
@@ -37,16 +40,13 @@ class FootballFetcher:
                 data = response.json()
                 self.fixture = data["response"]
             except httpx.RequestError as e:
-                logger.error(f"Failed to fetch fixture data: {e}")
+                self.logger.error(f"Failed to fetch fixture data: {e}")
 
     async def __getStandings(self):
         leagues = await self.__getLeagues()
         if leagues:
-            tasks = [
-                self.__getLeagueStandings(league["league"]["id"], current_year)
-                for league in leagues
-            ]
-            await asyncio.gather(*tasks)
+            for league in leagues:
+                await self.__getLeagueStandings(league["league"]["id"], current_year)
 
     async def __getLeagues(self):
         body = {"team": TEAM_ID}
@@ -69,7 +69,7 @@ class FootballFetcher:
                             break  # Stop checking other seasons once a match is found
                 return filtered_leagues
             except httpx.RequestError as e:
-                logger.error(f"Failed to fetch leagues data: {e}")
+                self.logger.error(f"Failed to fetch leagues data: {e}")
                 return None
 
     async def __getLeagueStandings(self, leagueId, season):
@@ -82,8 +82,26 @@ class FootballFetcher:
                 data = response.json()
                 if len(data["response"]) > 0:
                     leagueWithStandings = data["response"][0]["league"]
-                    self.leaguesStandings.append(leagueWithStandings)
+                    # Restructure the standings data
+                    restructured_league = {
+                        "id": leagueWithStandings["id"],
+                        "name": leagueWithStandings["name"],
+                        "country": leagueWithStandings["country"],
+                        "logo": leagueWithStandings["logo"],
+                        "flag": leagueWithStandings["flag"],
+                        "season": leagueWithStandings["season"],
+                        "standings": [],
+                    }
+
+                    # Flatten the nested standings array
+                    for group in leagueWithStandings["standings"]:
+                        for standing in group:
+                            restructured_league["standings"].append(standing)
+
+                    # Append the restructured data
+                    self.leaguesStandings.append(restructured_league)
+
             except httpx.RequestError as e:
-                logger.error(
+                self.logger.error(
                     f"Failed to fetch standings data for league {leagueId}: {e}"
                 )
