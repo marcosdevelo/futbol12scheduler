@@ -2,3 +2,5 @@ Flask
 apscheduler
 requests
 urllib3<2.0
+firebase-admin
+python-dotenv
