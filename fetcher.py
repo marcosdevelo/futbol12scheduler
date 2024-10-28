@@ -1,13 +1,13 @@
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import pytz
+
+from f12scheduler.k import K
 from f12scheduler.firebase_manager import FirestoreManager
 from f12scheduler.logging_config import configure_logging
 
-COLLECTION_NAME = "boca-data"
-API_KEY = "e622b1469cdad8fb39da43fde1490356"
-BASE_URL = "https://v3.football.api-sports.io"
-TEAM_ID = 451
-headers = {"x-apisports-key": API_KEY}
+
 current_year = datetime.now().year
 
 
@@ -15,27 +15,47 @@ class FootballFetcher:
     def __init__(self):
         self.leaguesStandings = []
         self.fixture = []
+        self.lastGame = []
         self.logger = configure_logging()
 
     async def start(self):
         await self.__getFixture()
         await self.__getStandings()
+        await self.__getLastGameResults()
         await self.__storeData()
 
     async def __storeData(self):
         firestore_manager = FirestoreManager()
-        collection_name = COLLECTION_NAME
-        document_id = COLLECTION_NAME
-        data = {"leaguesStandings": self.leaguesStandings, "fixture": self.fixture}
+        collection_name = K.COLLECTION_NAME
+        document_id = K.COLLECTION_NAME
+        data = {
+            "leaguesStandings": self.leaguesStandings,
+            "fixture": self.fixture,
+            "lastGame": self.lastGame,
+        }
 
-        firestore_manager.add_data(collection_name, document_id, data)
+        firestore_manager.update_data(collection_name, document_id, data)
 
-    async def __getFixture(self):
-        url = f"{BASE_URL}/fixtures"
-        body = {"team": TEAM_ID, "next": 6}
+        await self.__check_for_tomorrow_games(firestore_manager)
+
+    async def __getLastGameResults(self):
+        url = f"{K.BASE_URL}/fixtures"
+        body = {"team": K.TEAM_ID, "last": 1}
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(url, headers=headers, params=body)
+                response = await client.get(url, headers=K.headers, params=body)
+                response.raise_for_status()
+                data = response.json()
+                self.lastGame = data["response"]
+            except httpx.RequestError as e:
+                self.logger.error(f"Failed to fetch last game data: {e}")
+
+    async def __getFixture(self):
+        url = f"{K.BASE_URL}/fixtures"
+        body = {"team": K.TEAM_ID, "next": 6}
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=K.headers, params=body)
                 response.raise_for_status()
                 data = response.json()
                 self.fixture = data["response"]
@@ -49,11 +69,11 @@ class FootballFetcher:
                 await self.__getLeagueStandings(league["league"]["id"], current_year)
 
     async def __getLeagues(self):
-        body = {"team": TEAM_ID}
-        url = f"{BASE_URL}/leagues"
+        body = {"team": K.TEAM_ID}
+        url = f"{K.BASE_URL}/leagues"
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(url, headers=headers, params=body)
+                response = await client.get(url, headers=K.headers, params=body)
                 response.raise_for_status()
                 data = response.json()
                 leagues = data["response"]
@@ -74,10 +94,10 @@ class FootballFetcher:
 
     async def __getLeagueStandings(self, leagueId, season):
         body = {"league": leagueId, "season": season}
-        url = f"{BASE_URL}/standings"
+        url = f"{K.BASE_URL}/standings"
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(url, headers=headers, params=body)
+                response = await client.get(url, headers=K.headers, params=body)
                 response.raise_for_status()
                 data = response.json()
                 if len(data["response"]) > 0:
@@ -104,4 +124,27 @@ class FootballFetcher:
             except httpx.RequestError as e:
                 self.logger.error(
                     f"Failed to fetch standings data for league {leagueId}: {e}"
+                )
+
+    async def __check_for_tomorrow_games(self, firestore_manager):
+        tomorrow = (datetime.now(pytz.UTC) + timedelta(days=1)).date()
+
+        for game in self.fixture:
+            game_date = datetime.strptime(
+                game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S%z"
+            ).date()
+
+            if game_date == tomorrow:
+                # Add a new document in Firestore for notifications
+                notification_data = {
+                    "es": "Mañana juega Boca",
+                    "en": "Boca plays tomorrow",
+                    "gameDate": game["fixture"]["date"],
+                    "team2": game["teams"]["away"]["name"],
+                }
+                firestore_manager.update_data(
+                    "game_alerts", game["fixture"]["id"], notification_data
+                )
+                self.logger.info(
+                    f"Notification scheduled for game {game['teams']['home']['name']} vs {game['teams']['away']['name']} on {game_date}"
                 )

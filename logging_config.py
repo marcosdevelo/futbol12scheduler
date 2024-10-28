@@ -4,6 +4,9 @@ import logging
 
 def configure_logging():
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        filename="app.log",  # Log to a file named 'app.log'
+        filemode="a",  # Append to the log file
     )
     return logging.getLogger(__name__)

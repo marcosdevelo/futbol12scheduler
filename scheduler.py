@@ -8,7 +8,7 @@ class Scheduler:
         self.scheduler = BlockingScheduler()
         self.fetcher = fetcher
 
-    def fetch_function(self):
+    def fetch(self):
         asyncio.run(self.fetcher.start())
 
     def start(self):
@@ -16,7 +16,7 @@ class Scheduler:
         atexit.register(lambda: self.scheduler.shutdown())
 
         # Schedule the job
-        self.scheduler.add_job(func=self.fetch_function, trigger="interval", minutes=1)
+        self.scheduler.add_job(func=self.fetch, trigger="interval", minutes=1)
 
         # Start the blocking scheduler (this will keep the script running)
         self.scheduler.start()

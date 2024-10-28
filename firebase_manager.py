@@ -12,7 +12,7 @@ class FirestoreManager:
         load_dotenv()
 
         # Get the path to the service account JSON key from the environment variable
-        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        credentials_path = "./futbol12-78ec4-firebase-adminsdk-4oiqb-02baee2767.json"
 
         # Initialize the Firebase Admin SDK with the credentials
         cred = credentials.Certificate(credentials_path)
@@ -22,15 +22,22 @@ class FirestoreManager:
         self.db = firestore.client()
         self.logger = configure_logging()
 
-    def add_data(self, collection_name, document_id, data):
+    def update_data(self, collection_name, document_id, data):
         """
-        Adds data to a specific document in a Firestore collection.
+        Updates data in a specific document in a Firestore collection.
         """
-        try:
-            doc_ref = self.db.collection(collection_name).document(document_id)
-            doc_ref.set(data)
-        except Exception as e:
-            self.logger.error(f"Failed to add data to Firestore: {e}")
+        doc_ref = self.db.collection(collection_name).document(document_id)
+        doc_ref.update(data)
+
+    # def add_data(self, collection_name, document_id, data):
+    #     """
+    #     Adds data to a specific document in a Firestore collection.
+    #     """
+    #     try:
+    #         doc_ref = self.db.collection(collection_name).document(document_id)
+    #         doc_ref.set(data)
+    #     except Exception as e:
+    #         self.logger.error(f"Failed to add data to Firestore: {e}")
 
     # def read_data(self, collection_name, document_id):
     #     """
@@ -43,14 +50,7 @@ class FirestoreManager:
     #     else:
     #         return None
     #
-    # def update_data(self, collection_name, document_id, data):
-    #     """
-    #     Updates data in a specific document in a Firestore collection.
-    #     """
-    #     doc_ref = self.db.collection(collection_name).document(document_id)
-    #     doc_ref.update(data)
-    #     print(f"Document {document_id} updated in collection {collection_name}.")
-    #
+
     # def delete_data(self, collection_name, document_id):
     #     """
     #     Deletes a specific document from a Firestore collection.
