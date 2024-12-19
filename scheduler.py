@@ -4,7 +4,7 @@ from apscheduler.schedulers.background import (
 )  # Use BackgroundScheduler instead
 import asyncio
 
-from f12scheduler.logging_config import configure_logging
+from logging_config import configure_logging
 
 
 class Scheduler:

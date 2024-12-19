@@ -3,8 +3,7 @@ import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-from f12scheduler.logging_config import configure_logging
-
+from logging_config import configure_logging
 
 PATH_TO_KEY = "./futbol12-78ec4-firebase-adminsdk-4oiqb-02baee2767.json"
 
