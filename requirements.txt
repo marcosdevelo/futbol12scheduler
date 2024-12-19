@@ -6,7 +6,7 @@ firebase-admin
 python-dotenv
 gunicorn
 uvicorn
-
+flask-cors
 
 
 
