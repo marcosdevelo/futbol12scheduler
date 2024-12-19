@@ -3,10 +3,9 @@ from datetime import datetime, timedelta
 
 import pytz
 
-from f12scheduler.firebase_manager import FirestoreManager
-from f12scheduler.k import K
-from f12scheduler.logging_config import configure_logging
-
+from firebase_manager import FirestoreManager
+from k import K
+from logging_config import configure_logging
 
 current_year = datetime.now().year
 
@@ -91,8 +90,8 @@ class FootballFetcher:
                 for league in leagues:
                     for season in league["seasons"]:
                         if (
-                            season["year"] == current_year
-                            and season["coverage"]["standings"]
+                                season["year"] == current_year
+                                and season["coverage"]["standings"]
                         ):
                             filtered_leagues.append(league)
                             break  # Stop checking other seasons once a match is found
