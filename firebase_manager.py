@@ -6,19 +6,14 @@ from firebase_admin import credentials, firestore
 from f12scheduler.logging_config import configure_logging
 
 
+PATH_TO_KEY = "./futbol12-78ec4-firebase-adminsdk-4oiqb-02baee2767.json"
+
+
 class FirestoreManager:
     def __init__(self):
-        # Load environment variables from .env file
-        load_dotenv()
-
-        # Get the path to the service account JSON key from the environment variable
-        credentials_path = "./futbol12-78ec4-firebase-adminsdk-4oiqb-02baee2767.json"
-
-        # Initialize the Firebase Admin SDK with the credentials
-        cred = credentials.Certificate(credentials_path)
-        firebase_admin.initialize_app(cred)
-
-        # Initialize Firestore
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(PATH_TO_KEY)
+            firebase_admin.initialize_app(cred)
         self.db = firestore.client()
         self.logger = configure_logging()
 
@@ -26,18 +21,21 @@ class FirestoreManager:
         """
         Updates data in a specific document in a Firestore collection.
         """
-        doc_ref = self.db.collection(collection_name).document(document_id)
-        doc_ref.update(data)
+        try:
+            doc_ref = self.db.collection(collection_name).document(document_id)
+            doc_ref.update(data)
+        except Exception as e:
+            self.logger.error(f"Failed to update data in Firestore: {e}")
 
-    # def add_data(self, collection_name, document_id, data):
-    #     """
-    #     Adds data to a specific document in a Firestore collection.
-    #     """
-    #     try:
-    #         doc_ref = self.db.collection(collection_name).document(document_id)
-    #         doc_ref.set(data)
-    #     except Exception as e:
-    #         self.logger.error(f"Failed to add data to Firestore: {e}")
+    def add_data(self, collection_name, document_id, data):
+        """
+        Adds data to a specific document in a Firestore collection.
+        """
+        try:
+            doc_ref = self.db.collection(collection_name).document(document_id)
+            doc_ref.set(data)
+        except Exception as e:
+            self.logger.error(f"Failed to add data to Firestore: {e}")
 
     # def read_data(self, collection_name, document_id):
     #     """
@@ -50,7 +48,6 @@ class FirestoreManager:
     #     else:
     #         return None
     #
-
     # def delete_data(self, collection_name, document_id):
     #     """
     #     Deletes a specific document from a Firestore collection.

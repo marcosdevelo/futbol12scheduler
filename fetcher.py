@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 
 import pytz
 
-from f12scheduler.k import K
 from f12scheduler.firebase_manager import FirestoreManager
+from f12scheduler.k import K
 from f12scheduler.logging_config import configure_logging
 
 
@@ -17,26 +17,35 @@ class FootballFetcher:
         self.fixture = []
         self.lastGame = []
         self.logger = configure_logging()
+        self.firestore_manager = FirestoreManager()
+        self.processed_league_ids = set()
 
     async def start(self):
+        await self.resetData()
         await self.__getFixture()
         await self.__getStandings()
         await self.__getLastGameResults()
         await self.__storeData()
 
+    async def resetData(self):
+        self.leaguesStandings = []
+        self.fixture = []
+        self.lastGame = []
+
     async def __storeData(self):
-        firestore_manager = FirestoreManager()
         collection_name = K.COLLECTION_NAME
         document_id = K.COLLECTION_NAME
-        data = {
-            "leaguesStandings": self.leaguesStandings,
-            "fixture": self.fixture,
-            "lastGame": self.lastGame,
-        }
+        newData = {}
 
-        firestore_manager.update_data(collection_name, document_id, data)
+        if len(self.leaguesStandings) > 0:
+            newData["leaguesStandings"] = self.leaguesStandings
+        if len(self.fixture) > 0:
+            newData["fixture"] = self.fixture
+        if len(self.lastGame) > 0:
+            newData["lastGame"] = self.lastGame
+        self.firestore_manager.update_data(collection_name, document_id, newData)
 
-        await self.__check_for_tomorrow_games(firestore_manager)
+        await self.__check_for_tomorrow_games()
 
     async def __getLastGameResults(self):
         url = f"{K.BASE_URL}/fixtures"
@@ -118,15 +127,16 @@ class FootballFetcher:
                         for standing in group:
                             restructured_league["standings"].append(standing)
 
-                    # Append the restructured data
-                    self.leaguesStandings.append(restructured_league)
-
+                            # Append the restructured data if not already present
+                    if restructured_league["id"] not in self.processed_league_ids:
+                        self.leaguesStandings.append(restructured_league)
+                        self.processed_league_ids.add(restructured_league["id"])
             except httpx.RequestError as e:
                 self.logger.error(
                     f"Failed to fetch standings data for league {leagueId}: {e}"
                 )
 
-    async def __check_for_tomorrow_games(self, firestore_manager):
+    async def __check_for_tomorrow_games(self):
         tomorrow = (datetime.now(pytz.UTC) + timedelta(days=1)).date()
 
         for game in self.fixture:
@@ -142,7 +152,7 @@ class FootballFetcher:
                     "gameDate": game["fixture"]["date"],
                     "team2": game["teams"]["away"]["name"],
                 }
-                firestore_manager.update_data(
+                self.firestore_manager.add_data(
                     "game_alerts", game["fixture"]["id"], notification_data
                 )
                 self.logger.info(
