@@ -2,9 +2,8 @@ import threading
 
 from flask import Flask, jsonify
 from flask_cors import CORS
-
-from f12scheduler.fetcher import FootballFetcher
-from f12scheduler.logging_config import configure_logging
+from fetcher import FootballFetcher
+from logging_config import configure_logging
 from scheduler import Scheduler
 
 app = Flask(__name__)
