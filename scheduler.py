@@ -24,7 +24,9 @@ class Scheduler:
         atexit.register(lambda: self.scheduler.shutdown())
 
         # Schedule the job (e.g., run daily or hourly as needed)
-        self.scheduler.add_job(func=self.fetch, trigger="interval", minutes=1)
+        # self.scheduler.add_job(func=self.fetch, trigger="interval", days=1)
 
+        # Schedule the job to run every day at 5 PM
+        self.scheduler.add_job(func=self.fetch, trigger="cron", hour=17, minute=0)
         # Start the background scheduler
         self.scheduler.start()
