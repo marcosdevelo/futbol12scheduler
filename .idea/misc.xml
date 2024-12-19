@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="Black">
+<<<<<<< HEAD
     <option name="enabledOnReformat" value="true" />
     <option name="sdkName" value="Python 3.9 (futbol12)" />
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.9 (futbol12)" project-jdk-type="Python SDK" />
+=======
+    <option name="sdkName" value="Python 3.9 (BocaJuniorTaskScheduler)" />
+  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.9 (BocaJuniorTaskScheduler)" project-jdk-type="Python SDK" />
+>>>>>>> origin/main
   <component name="PyCharmProfessionalAdvertiser">
     <option name="shown" value="true" />
   </component>

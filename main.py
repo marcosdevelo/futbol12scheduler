@@ -1,0 +1,37 @@
+import threading
+
+from flask import Flask, jsonify
+from flask_cors import CORS
+
+from f12scheduler.fetcher import FootballFetcher
+from f12scheduler.logging_config import configure_logging
+from scheduler import Scheduler
+
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+fetcher = FootballFetcher()
+appScheduler = Scheduler(fetcher)
+
+logger = configure_logging()
+
+
+# Function to start the scheduler in a background thread
+def start_scheduler():
+    appScheduler.start()
+
+
+# Run the scheduler in a separate thread when the app starts
+threading.Thread(target=start_scheduler, daemon=True).start()
+
+
+# API endpoint to manually trigger the fetcher
+@app.route("/trigger-fetcher", methods=["GET"])
+async def trigger_fetcher():
+    logger.info("Manually triggering fetcher.")
+    await fetcher.start()  # Directly call the fetcher's start method
+    return jsonify({"status": 200, "message": "Fetcher triggered."})
+
+
+if __name__ == "__main__":
+    app.run(port=8080)
