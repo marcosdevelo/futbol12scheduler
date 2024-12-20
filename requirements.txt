@@ -1,4 +1,4 @@
-Flask
+Flask[async]
 apscheduler
 requests
 urllib3<2.0
