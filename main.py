@@ -5,25 +5,25 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from fetcher import FootballFetcher
 from logging_config import configure_logging
-from scheduler import Scheduler
+# from scheduler import Scheduler
 from waitress import serve
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 fetcher = FootballFetcher()
-appScheduler = Scheduler(fetcher)
+# appScheduler = Scheduler(fetcher)
 
 logger = configure_logging()
 
 
-# Function to start the scheduler in a background thread
-def start_scheduler():
-    appScheduler.start()
-
-
-# Run the scheduler in a separate thread when the app starts
-threading.Thread(target=start_scheduler, daemon=True).start()
+# # Function to start the scheduler in a background thread
+# def start_scheduler():
+#     appScheduler.start()
+#
+#
+# # Run the scheduler in a separate thread when the app starts
+# threading.Thread(target=start_scheduler, daemon=True).start()
 
 
 @app.route("/", methods=["GET"])
