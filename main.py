@@ -24,6 +24,12 @@ def start_scheduler():
 threading.Thread(target=start_scheduler, daemon=True).start()
 
 
+@app.route("/", methods=["GET"])
+async def home_welcome():
+    logger.info("home page API.")
+    return jsonify({"status": 200, "message": "Welcome to the home page."})
+
+
 # API endpoint to manually trigger the fetcher
 @app.route("/trigger-fetcher", methods=["GET"])
 async def trigger_fetcher():
