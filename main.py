@@ -32,6 +32,12 @@ async def home_welcome():
     return jsonify({"status": 200, "message": "Welcome to the home page."})
 
 
+@app.route("/ping", methods=["GET"])
+async def ping():
+    logger.info("Pinged API.")
+    return jsonify({"status": 200, "message": "pong"})
+
+
 # API endpoint to manually trigger the fetcher
 @app.route("/trigger-fetcher", methods=["GET"])
 async def trigger_fetcher():
