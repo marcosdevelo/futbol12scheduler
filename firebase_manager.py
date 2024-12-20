@@ -5,13 +5,39 @@ from firebase_admin import credentials, firestore
 
 from logging_config import configure_logging
 
-PATH_TO_KEY = "./futbol12-78ec4-firebase-adminsdk-4oiqb-02baee2767.json"
+# Load environment variables from a .env file
+load_dotenv()
+
+# Retrieve environment variables
+project_id = os.getenv("FIREBASE_PROJECT_ID")
+private_key_id = os.getenv("FIREBASE_PRIVATE_KEY_ID")
+private_key = os.getenv("FIREBASE_PRIVATE_KEY").replace("\\n", "\n")
+client_email = os.getenv("FIREBASE_CLIENT_EMAIL")
+client_id = os.getenv("FIREBASE_CLIENT_ID")
+auth_uri = os.getenv("FIREBASE_AUTH_URI")
+token_uri = os.getenv("FIREBASE_TOKEN_URI")
+auth_provider_x509_cert_url = os.getenv("FIREBASE_AUTH_PROVIDER_X509_CERT_URL")
+client_x509_cert_url = os.getenv("FIREBASE_CLIENT_X509_CERT_URL")
+
+# Create a dictionary with the credentials
+firebase_credentials = {
+    "type": "service_account",
+    "project_id": project_id,
+    "private_key_id": private_key_id,
+    "private_key": private_key,
+    "client_email": client_email,
+    "client_id": client_id,
+    "auth_uri": auth_uri,
+    "token_uri": token_uri,
+    "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
+    "client_x509_cert_url": client_x509_cert_url
+}
 
 
 class FirestoreManager:
     def __init__(self):
         if not firebase_admin._apps:
-            cred = credentials.Certificate(PATH_TO_KEY)
+            cred = credentials.Certificate(firebase_credentials)
             firebase_admin.initialize_app(cred)
         self.db = firestore.client()
         self.logger = configure_logging()

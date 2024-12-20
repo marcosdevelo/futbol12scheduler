@@ -42,9 +42,12 @@ class FootballFetcher:
             newData["fixture"] = self.fixture
         if len(self.lastGame) > 0:
             newData["lastGame"] = self.lastGame
-        self.firestore_manager.update_data(collection_name, document_id, newData)
-
-        await self.__check_for_tomorrow_games()
+        try:
+            self.firestore_manager.update_data(collection_name, document_id, newData)
+            await self.__check_for_tomorrow_games()
+            self.logger.info("Data stored in Firestore.")
+        except Exception as e:
+            self.logger.error(f"Failed to store data in Firestore: {e}")
 
     async def __getLastGameResults(self):
         url = f"{K.BASE_URL}/fixtures"
