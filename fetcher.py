@@ -44,7 +44,7 @@ class FootballFetcher:
             newData["lastGame"] = self.lastGame
         try:
             self.firestore_manager.update_data(collection_name, document_id, newData)
-            await self.__check_for_tomorrow_games()
+            # await self.__check_for_tomorrow_games()
             self.logger.info("Data stored in Firestore.")
         except Exception as e:
             self.logger.error(f"Failed to store data in Firestore: {e}")
@@ -138,25 +138,25 @@ class FootballFetcher:
                     f"Failed to fetch standings data for league {leagueId}: {e}"
                 )
 
-    async def __check_for_tomorrow_games(self):
-        tomorrow = (datetime.now(pytz.UTC) + timedelta(days=1)).date()
-
-        for game in self.fixture:
-            game_date = datetime.strptime(
-                game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S%z"
-            ).date()
-
-            if game_date == tomorrow:
-                # Add a new document in Firestore for notifications
-                notification_data = {
-                    "es": "Mañana juega Boca",
-                    "en": "Boca plays tomorrow",
-                    "gameDate": game["fixture"]["date"],
-                    "team2": game["teams"]["away"]["name"],
-                }
-                self.firestore_manager.add_data(
-                    "game_alerts", game["fixture"]["id"], notification_data
-                )
-                self.logger.info(
-                    f"Notification scheduled for game {game['teams']['home']['name']} vs {game['teams']['away']['name']} on {game_date}"
-                )
+    # async def __check_for_tomorrow_games(self):
+    #     tomorrow = (datetime.now(pytz.UTC) + timedelta(days=1)).date()
+    #
+    #     for game in self.fixture:
+    #         game_date = datetime.strptime(
+    #             game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S%z"
+    #         ).date()
+    #
+    #         if game_date == tomorrow:
+    #             # Add a new document in Firestore for notifications
+    #             notification_data = {
+    #                 "es": "Mañana juega Boca",
+    #                 "en": "Boca plays tomorrow",
+    #                 "gameDate": game["fixture"]["date"],
+    #                 "team2": game["teams"]["away"]["name"],
+    #             }
+    #             self.firestore_manager.add_data(
+    #                 "game_alerts", game["fixture"]["id"], notification_data
+    #             )
+    #             self.logger.info(
+    #                 f"Notification scheduled for game {game['teams']['home']['name']} vs {game['teams']['away']['name']} on {game_date}"
+    #             )
