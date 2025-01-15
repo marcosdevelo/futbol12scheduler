@@ -63,7 +63,7 @@ class FootballFetcher:
 
     async def __getFixture(self):
         url = f"{K.BASE_URL}/fixtures"
-        body = {"team": K.TEAM_ID, "next": 6}
+        body = {"team": K.TEAM_ID, "next": 12}
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, headers=K.headers, params=body)
