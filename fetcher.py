@@ -63,7 +63,7 @@ class FootballFetcher:
 
     async def __getFixture(self):
         url = f"{K.BASE_URL}/fixtures"
-        body = {"team": K.TEAM_ID, "next": 12}
+        body = {"team": K.TEAM_ID, "next": 16}
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, headers=K.headers, params=body)
@@ -113,26 +113,54 @@ class FootballFetcher:
                 data = response.json()
                 if len(data["response"]) > 0:
                     leagueWithStandings = data["response"][0]["league"]
-                    # Restructure the standings data
-                    restructured_league = {
-                        "id": leagueWithStandings["id"],
-                        "name": leagueWithStandings["name"],
-                        "country": leagueWithStandings["country"],
-                        "logo": leagueWithStandings["logo"],
-                        "flag": leagueWithStandings["flag"],
-                        "season": leagueWithStandings["season"],
-                        "standings": [],
-                    }
-
-                    # Flatten the nested standings array
-                    for group in leagueWithStandings["standings"]:
-                        for standing in group:
-                            restructured_league["standings"].append(standing)
+                    
+                    # Special handling for Liga Profesional Argentina
+                    if leagueWithStandings["name"] == "Liga Profesional Argentina":
+                        # Handle multiple standings arrays
+                        for standings_group in leagueWithStandings["standings"]:
+                            # Get group name from first team
+                            group_name = standings_group[0]["group"] if standings_group else None
+                            
+                            # Create a unique identifier combining league ID and group name
+                            unique_id = f"{leagueWithStandings['id']}_{group_name}"
+                            
+                            # Create a new league entry for each group
+                            restructured_league = {
+                                "id": leagueWithStandings["id"],
+                                "name": group_name,  # Use group name instead of league name
+                                "country": leagueWithStandings["country"],
+                                "logo": leagueWithStandings["logo"],
+                                "flag": leagueWithStandings["flag"],
+                                "season": leagueWithStandings["season"],
+                                "group": group_name,
+                                "standings": standings_group
+                            }
 
                             # Append the restructured data if not already present
-                    if restructured_league["id"] not in self.processed_league_ids:
-                        self.leaguesStandings.append(restructured_league)
-                        self.processed_league_ids.add(restructured_league["id"])
+                            if unique_id not in self.processed_league_ids:
+                                self.leaguesStandings.append(restructured_league)
+                                self.processed_league_ids.add(unique_id)
+                    else:
+                        # Original behavior for other leagues
+                        restructured_league = {
+                            "id": leagueWithStandings["id"],
+                            "name": leagueWithStandings["name"],
+                            "country": leagueWithStandings["country"],
+                            "logo": leagueWithStandings["logo"],
+                            "flag": leagueWithStandings["flag"],
+                            "season": leagueWithStandings["season"],
+                            "standings": [],
+                        }
+
+                        # Flatten the nested standings array
+                        for group in leagueWithStandings["standings"]:
+                            for standing in group:
+                                restructured_league["standings"].append(standing)
+
+                        # Append the restructured data if not already present
+                        if restructured_league["id"] not in self.processed_league_ids:
+                            self.leaguesStandings.append(restructured_league)
+                            self.processed_league_ids.add(restructured_league["id"])
             except httpx.RequestError as e:
                 self.logger.error(
                     f"Failed to fetch standings data for league {leagueId}: {e}"
