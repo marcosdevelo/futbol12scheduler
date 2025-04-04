@@ -15,21 +15,28 @@ class FootballFetcher:
         self.leaguesStandings = []
         self.fixture = []
         self.lastGame = []
+        self.topScorers = []
         self.logger = configure_logging()
         self.firestore_manager = FirestoreManager()
         self.processed_league_ids = set()
+        self.processed_topscorer_league_ids = set()
 
     async def start(self):
         await self.resetData()
         await self.__getFixture()
         await self.__getStandings()
         await self.__getLastGameResults()
+        await self.__getLastGameStatistics()
+        await self.__getTopScorers()
         await self.__storeData()
 
     async def resetData(self):
         self.leaguesStandings = []
         self.fixture = []
         self.lastGame = []
+        self.topScorers = []
+        self.processed_league_ids.clear()
+        self.processed_topscorer_league_ids.clear()
 
     async def __storeData(self):
         collection_name = K.COLLECTION_NAME
@@ -42,6 +49,8 @@ class FootballFetcher:
             newData["fixture"] = self.fixture
         if len(self.lastGame) > 0:
             newData["lastGame"] = self.lastGame
+        if len(self.topScorers) > 0:
+            newData["topScorers"] = self.topScorers
         try:
             self.firestore_manager.update_data(collection_name, document_id, newData)
             # await self.__check_for_tomorrow_games()
@@ -113,17 +122,17 @@ class FootballFetcher:
                 data = response.json()
                 if len(data["response"]) > 0:
                     leagueWithStandings = data["response"][0]["league"]
-                    
+
                     # Special handling for Liga Profesional Argentina
                     if leagueWithStandings["name"] == "Liga Profesional Argentina":
                         # Handle multiple standings arrays
                         for standings_group in leagueWithStandings["standings"]:
                             # Get group name from first team
                             group_name = standings_group[0]["group"] if standings_group else None
-                            
+
                             # Create a unique identifier combining league ID and group name
                             unique_id = f"{leagueWithStandings['id']}_{group_name}"
-                            
+
                             # Create a new league entry for each group
                             restructured_league = {
                                 "id": leagueWithStandings["id"],
@@ -166,25 +175,61 @@ class FootballFetcher:
                     f"Failed to fetch standings data for league {leagueId}: {e}"
                 )
 
-    # async def __check_for_tomorrow_games(self):
-    #     tomorrow = (datetime.now(pytz.UTC) + timedelta(days=1)).date()
-    #
-    #     for game in self.fixture:
-    #         game_date = datetime.strptime(
-    #             game["fixture"]["date"], "%Y-%m-%dT%H:%M:%S%z"
-    #         ).date()
-    #
-    #         if game_date == tomorrow:
-    #             # Add a new document in Firestore for notifications
-    #             notification_data = {
-    #                 "es": "Mañana juega Boca",
-    #                 "en": "Boca plays tomorrow",
-    #                 "gameDate": game["fixture"]["date"],
-    #                 "team2": game["teams"]["away"]["name"],
-    #             }
-    #             self.firestore_manager.add_data(
-    #                 "game_alerts", game["fixture"]["id"], notification_data
-    #             )
-    #             self.logger.info(
-    #                 f"Notification scheduled for game {game['teams']['home']['name']} vs {game['teams']['away']['name']} on {game_date}"
-    #             )
+    async def __getLastGameStatistics(self):
+        body = {"team": K.TEAM_ID, "fixture": self.lastGame[0]['fixture']['id']}
+        url = f"{K.BASE_URL}/fixtures/statistics"
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=K.headers, params=body)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Add statistics to the lastGame property
+                if len(self.lastGame) > 0 and len(data["response"]) > 0:
+                    self.lastGame[0]["statistics"] = data["response"]
+                    self.logger.info("Successfully fetched and added statistics to last game")
+                else:
+                    self.logger.warning("No statistics data available for the last game")
+            except httpx.RequestError as e:
+                self.logger.error(f"Failed to fetch last game statistics: {e}")
+                # Initialize empty statistics if request fails
+                if len(self.lastGame) > 0:
+                    self.lastGame[0]["statistics"] = []
+
+    async def __getTopScorers(self):
+        if self.leaguesStandings:
+            for league in self.leaguesStandings:
+                # Skip if we've already processed this league's top scorers
+                if league["id"] in self.processed_topscorer_league_ids:
+                    continue
+                
+                body = {"league": league["id"], "season": current_year}
+                url = f"{K.BASE_URL}/players/topscorers"
+                
+                async with httpx.AsyncClient() as client:
+                    try:
+                        response = await client.get(url, headers=K.headers, params=body)
+                        response.raise_for_status()
+                        data = response.json()
+                        
+                        if len(data["response"]) > 0:
+                            # Handle special case for Argentine league
+                            league_name = "Primera LPF" if league["id"] == 128 else league["name"]
+                            
+                            # Create a structured object for the league's top scorers
+                            league_top_scorers = {
+                                "league_id": league["id"],
+                                "league_name": league_name,
+                                "country": league["country"],
+                                "logo": league["logo"],
+                                "flag": league["flag"],
+                                "season": current_year,
+                                "scorers": data["response"]
+                            }
+                            
+                            self.topScorers.append(league_top_scorers)
+                            self.processed_topscorer_league_ids.add(league["id"])
+                            self.logger.info(f"Successfully fetched top scorers for league {league_name}")
+                    except httpx.RequestError as e:
+                        self.logger.error(f"Failed to fetch top scorers for league {league['id']}: {e}") 
