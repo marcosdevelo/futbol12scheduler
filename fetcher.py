@@ -176,7 +176,7 @@ class FootballFetcher:
                 )
 
     async def __getLastGameStatistics(self):
-        body = {"team": K.TEAM_ID, "fixture": self.lastGame[0]['fixture']['id']}
+        body = {"fixture": self.lastGame[0]['fixture']['id']}
         url = f"{K.BASE_URL}/fixtures/statistics"
         
         async with httpx.AsyncClient() as client:
@@ -184,7 +184,7 @@ class FootballFetcher:
                 response = await client.get(url, headers=K.headers, params=body)
                 response.raise_for_status()
                 data = response.json()
-                
+
                 # Add statistics to the lastGame property
                 if len(self.lastGame) > 0 and len(data["response"]) > 0:
                     self.lastGame[0]["statistics"] = data["response"]
@@ -203,20 +203,20 @@ class FootballFetcher:
                 # Skip if we've already processed this league's top scorers
                 if league["id"] in self.processed_topscorer_league_ids:
                     continue
-                
+
                 body = {"league": league["id"], "season": current_year}
                 url = f"{K.BASE_URL}/players/topscorers"
-                
+
                 async with httpx.AsyncClient() as client:
                     try:
                         response = await client.get(url, headers=K.headers, params=body)
                         response.raise_for_status()
                         data = response.json()
-                        
+
                         if len(data["response"]) > 0:
                             # Handle special case for Argentine league
                             league_name = "Primera LPF" if league["id"] == 128 else league["name"]
-                            
+
                             # Create a structured object for the league's top scorers
                             league_top_scorers = {
                                 "league_id": league["id"],
@@ -227,9 +227,9 @@ class FootballFetcher:
                                 "season": current_year,
                                 "scorers": data["response"]
                             }
-                            
+
                             self.topScorers.append(league_top_scorers)
                             self.processed_topscorer_league_ids.add(league["id"])
                             self.logger.info(f"Successfully fetched top scorers for league {league_name}")
                     except httpx.RequestError as e:
-                        self.logger.error(f"Failed to fetch top scorers for league {league['id']}: {e}") 
+                        self.logger.error(f"Failed to fetch top scorers for league {league['id']}: {e}")
