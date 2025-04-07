@@ -178,7 +178,7 @@ class FootballFetcher:
     async def __getLastGameStatistics(self):
         body = {"fixture": self.lastGame[0]['fixture']['id']}
         url = f"{K.BASE_URL}/fixtures/statistics"
-        
+
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, headers=K.headers, params=body)
