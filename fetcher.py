@@ -70,15 +70,38 @@ class FootballFetcher:
             except httpx.RequestError as e:
                 self.logger.error(f"Failed to fetch last game data: {e}")
 
+    async def __getFixturePredictions(self, fixture_id):
+        url = f"{K.BASE_URL}/predictions"
+        body = {"fixture": fixture_id}
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=K.headers, params=body)
+                response.raise_for_status()
+                data = response.json()
+                
+                if len(data["response"]) > 0:
+                    return data["response"][0]
+                return None
+            except httpx.RequestError as e:
+                self.logger.error(f"Failed to fetch predictions for fixture {fixture_id}: {e}")
+                return None
+
     async def __getFixture(self):
         url = f"{K.BASE_URL}/fixtures"
-        body = {"team": K.TEAM_ID, "next": 16}
+        body = {"team": K.TEAM_ID, "next": 8}
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, headers=K.headers, params=body)
                 response.raise_for_status()
                 data = response.json()
                 self.fixture = data["response"]
+                
+                # Get predictions for the next game (first fixture)
+                if len(self.fixture) > 0:
+                    next_game_predictions = await self.__getFixturePredictions(self.fixture[0]["fixture"]["id"])
+                    if next_game_predictions:
+                        self.fixture[0]["predictions"] = next_game_predictions
             except httpx.RequestError as e:
                 self.logger.error(f"Failed to fetch fixture data: {e}")
 
