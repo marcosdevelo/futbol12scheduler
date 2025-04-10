@@ -27,6 +27,8 @@ class FootballFetcher:
         await self.__getStandings()
         await self.__getLastGameResults()
         await self.__getLastGameStatistics()
+        await self.__getLastGameEvents()
+        await self.__getLastGameLineups()
         await self.__getTopScorers()
         await self.__storeData()
 
@@ -73,13 +75,13 @@ class FootballFetcher:
     async def __getFixturePredictions(self, fixture_id):
         url = f"{K.BASE_URL}/predictions"
         body = {"fixture": fixture_id}
-        
+
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, headers=K.headers, params=body)
                 response.raise_for_status()
                 data = response.json()
-                
+
                 if len(data["response"]) > 0:
                     return data["response"][0]
                 return None
@@ -96,7 +98,7 @@ class FootballFetcher:
                 response.raise_for_status()
                 data = response.json()
                 self.fixture = data["response"]
-                
+
                 # Get predictions for the next game (first fixture)
                 if len(self.fixture) > 0:
                     next_game_predictions = await self.__getFixturePredictions(self.fixture[0]["fixture"]["id"])
@@ -219,6 +221,46 @@ class FootballFetcher:
                 # Initialize empty statistics if request fails
                 if len(self.lastGame) > 0:
                     self.lastGame[0]["statistics"] = []
+
+    async def __getLastGameEvents(self):
+        if len(self.lastGame) > 0:
+            url = f"{K.BASE_URL}/fixtures/events"
+            body = {"fixture": self.lastGame[0]["fixture"]["id"]}
+
+            async with httpx.AsyncClient() as client:
+                try:
+                    response = await client.get(url, headers=K.headers, params=body)
+                    response.raise_for_status()
+                    data = response.json()
+
+                    if len(data["response"]) > 0:
+                        self.lastGame[0]["events"] = data["response"]
+                        self.logger.info("Successfully fetched last game events")
+                    else:
+                        self.lastGame[0]["events"] = []
+                except httpx.RequestError as e:
+                    self.logger.error(f"Failed to fetch last game events: {e}")
+                    self.lastGame[0]["events"] = []
+
+    async def __getLastGameLineups(self):
+        if len(self.lastGame) > 0:
+            url = f"{K.BASE_URL}/fixtures/lineups"
+            body = {"fixture": self.lastGame[0]["fixture"]["id"]}
+
+            async with httpx.AsyncClient() as client:
+                try:
+                    response = await client.get(url, headers=K.headers, params=body)
+                    response.raise_for_status()
+                    data = response.json()
+
+                    if len(data["response"]) > 0:
+                        self.lastGame[0]["lineups"] = data["response"]
+                        self.logger.info("Successfully fetched last game lineups")
+                    else:
+                        self.lastGame[0]["lineups"] = []
+                except httpx.RequestError as e:
+                    self.logger.error(f"Failed to fetch last game lineups: {e}")
+                    self.lastGame[0]["lineups"] = []
 
     async def __getTopScorers(self):
         if self.leaguesStandings:
