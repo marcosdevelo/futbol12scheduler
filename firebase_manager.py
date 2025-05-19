@@ -45,10 +45,20 @@ class FirestoreManager:
     def update_data(self, collection_name, document_id, data):
         """
         Updates data in a specific document in a Firestore collection.
+        If the document doesn't exist, it will be created.
         """
         try:
             doc_ref = self.db.collection(collection_name).document(document_id)
-            doc_ref.update(data)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                # Document exists, update it
+                doc_ref.update(data)
+                self.logger.info(f"Updated existing document {document_id} in collection {collection_name}")
+            else:
+                # Document doesn't exist, create it
+                doc_ref.set(data)
+                self.logger.info(f"Created new document {document_id} in collection {collection_name}")
         except Exception as e:
             self.logger.error(f"Failed to update data in Firestore: {e}")
 
