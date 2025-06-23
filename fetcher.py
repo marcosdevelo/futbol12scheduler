@@ -1,8 +1,7 @@
-import httpx
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 
-import pytz
+import httpx
 
 from firebase_manager import FirestoreManager
 from k import K
@@ -34,7 +33,7 @@ class FootballFetcher:
             await self.__getLastGameLineups()
             await self.__getTopScorers()
             await self.__storeData()
-            
+
             # Return success response with any errors that occurred
             return {
                 "status": "success",
@@ -47,7 +46,7 @@ class FootballFetcher:
                     "topScorers_count": len(self.topScorers)
                 }
             }
-                
+
         except Exception as e:
             error_msg = f"Critical error in FootballFetcher.start(): {str(e)}"
             self.logger.error(error_msg)
@@ -83,7 +82,7 @@ class FootballFetcher:
                     k = str(k).strip()
                     if not k:
                         continue
-                    
+
                     if v is not None:
                         try:
                             cleaned_value = self.__clean_data_for_firestore(v, f"{path}.{k}")
@@ -151,7 +150,7 @@ class FootballFetcher:
             self.logger.info("Data stored in Firestore.")
         except Exception as e:
             self.__log_and_store_error(
-                "Firestore Storage Error", 
+                "Firestore Storage Error",
                 str(e),
                 "Failed to store data in Firestore"
             )
@@ -159,13 +158,13 @@ class FootballFetcher:
     async def __getLastGameResults(self):
         url = f"{K.BASE_URL}/fixtures"
         body = {"team": K.TEAM_ID, "last": 1}
-        
+
         data = await self.__make_api_request_with_retry(url, body)
         if data is not None:
             self.lastGame = data["response"]
         else:
             self.__log_and_store_error(
-                "Last Game Data Error", 
+                "Last Game Data Error",
                 "Failed to fetch last game data after all retries",
                 f"Team ID: {K.TEAM_ID}"
             )
@@ -183,7 +182,7 @@ class FootballFetcher:
     async def __getFixture(self):
         url = f"{K.BASE_URL}/fixtures"
         body = {"team": K.TEAM_ID, "next": 8}
-        
+
         data = await self.__make_api_request_with_retry(url, body)
         if data is not None:
             self.fixture = data["response"]
@@ -195,7 +194,7 @@ class FootballFetcher:
                     self.fixture[0]["predictions"] = next_game_predictions
         else:
             self.__log_and_store_error(
-                "Fixture Data Error", 
+                "Fixture Data Error",
                 "Failed to fetch fixture data after all retries",
                 f"Team ID: {K.TEAM_ID}"
             )
@@ -210,7 +209,7 @@ class FootballFetcher:
     async def __getLeagues(self):
         body = {"team": K.TEAM_ID}
         url = f"{K.BASE_URL}/leagues"
-        
+
         data = await self.__make_api_request_with_retry(url, body)
         if data is not None:
             leagues = data["response"]
@@ -227,7 +226,7 @@ class FootballFetcher:
             return filtered_leagues
         else:
             self.__log_and_store_error(
-                "Leagues Data Error", 
+                "Leagues Data Error",
                 "Failed to fetch leagues data after all retries",
                 f"Team ID: {K.TEAM_ID}"
             )
@@ -236,7 +235,7 @@ class FootballFetcher:
     async def __getLeagueStandings(self, leagueId, season):
         body = {"league": leagueId, "season": season}
         url = f"{K.BASE_URL}/standings"
-        
+
         data = await self.__make_api_request_with_retry(url, body)
         if data is not None and len(data["response"]) > 0:
             leagueWithStandings = data["response"][0]["league"]
@@ -290,7 +289,7 @@ class FootballFetcher:
                     self.processed_league_ids.add(restructured_league["id"])
         else:
             self.__log_and_store_error(
-                "Standings Data Error", 
+                "Standings Data Error",
                 f"Failed to fetch standings data for league {leagueId} after all retries",
                 f"League ID: {leagueId}, Season: {season}"
             )
@@ -299,7 +298,7 @@ class FootballFetcher:
         if len(self.lastGame) == 0:
             self.logger.warning("No last game data available for statistics")
             return
-            
+
         body = {"fixture": self.lastGame[0]['fixture']['id']}
         url = f"{K.BASE_URL}/fixtures/statistics"
 
@@ -315,7 +314,7 @@ class FootballFetcher:
                     else:
                         cleaned_stat[key] = value
                 cleaned_statistics.append(cleaned_stat)
-            
+
             self.lastGame[0]["statistics"] = cleaned_statistics
             self.logger.info("Successfully fetched and added statistics to last game")
         else:
@@ -327,7 +326,7 @@ class FootballFetcher:
         if len(self.lastGame) == 0:
             self.logger.warning("No last game data available for events")
             return
-            
+
         url = f"{K.BASE_URL}/fixtures/events"
         body = {"fixture": self.lastGame[0]["fixture"]["id"]}
 
@@ -342,40 +341,40 @@ class FootballFetcher:
                     for key, value in event.items():
                         if key != 'time':
                             cleaned_event[key] = value
-                    
+
                     # Handle time field separately
                     if 'time' in event and isinstance(event['time'], dict):
                         time_dict = event['time']
                         elapsed = time_dict.get('elapsed')
                         extra = time_dict.get('extra')
-                        
+
                         # Convert elapsed to int, default to 0 if conversion fails
                         try:
                             elapsed_int = int(float(str(elapsed))) if elapsed is not None else 0
                         except (ValueError, TypeError):
                             elapsed_int = 0
                             self.logger.warning(f"Failed to convert elapsed time: {elapsed}")
-                        
+
                         # Convert extra to int if it exists, otherwise None
                         try:
                             extra_int = int(float(str(extra))) if extra is not None else None
                         except (ValueError, TypeError):
                             extra_int = None
                             self.logger.warning(f"Failed to convert extra time: {extra}")
-                        
+
                         cleaned_event['time'] = {
                             'elapsed': elapsed_int,
                             'extra': extra_int
                         }
                     else:
                         cleaned_event['time'] = {'elapsed': 0, 'extra': None}
-                    
+
                     cleaned_events.append(cleaned_event)
                     self.logger.debug(f"Processed event with time: {cleaned_event['time']}")
                 except Exception as e:
                     self.logger.error(f"Error processing event: {str(e)}")
                     continue
-            
+
             self.lastGame[0]["events"] = cleaned_events
             self.logger.info(f"Successfully fetched and processed {len(cleaned_events)} events")
         else:
@@ -386,7 +385,7 @@ class FootballFetcher:
         if len(self.lastGame) == 0:
             self.logger.warning("No last game data available for lineups")
             return
-            
+
         url = f"{K.BASE_URL}/fixtures/lineups"
         body = {"fixture": self.lastGame[0]["fixture"]["id"]}
 
@@ -406,17 +405,17 @@ class FootballFetcher:
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.get(url, headers=K.headers, params=params)
-                    
+
                     # Check for rate limit error
                     if response.status_code == 405:
                         error_data = response.json()
                         if 'errors' in error_data and 'rateLimit' in error_data['errors']:
                             self.__log_and_store_error(
-                                "Rate Limit Error", 
+                                "Rate Limit Error",
                                 error_data['errors']['rateLimit'],
                                 f"URL: {url}, Attempt: {attempt + 1}/{max_retries}"
                             )
-                            
+
                             if attempt < max_retries - 1:
                                 # Calculate delay with exponential backoff
                                 delay = base_delay * (2 ** attempt)
@@ -425,18 +424,18 @@ class FootballFetcher:
                                 continue
                             else:
                                 self.__log_and_store_error(
-                                    "Max Retries Reached", 
+                                    "Max Retries Reached",
                                     "Rate limit exceeded after all retry attempts",
                                     f"URL: {url}"
                                 )
                                 return None
-                    
+
                     response.raise_for_status()
                     return response.json()
-                    
+
             except httpx.RequestError as e:
                 self.__log_and_store_error(
-                    "Request Error", 
+                    "Request Error",
                     str(e),
                     f"URL: {url}, Attempt: {attempt + 1}/{max_retries}"
                 )
@@ -447,7 +446,7 @@ class FootballFetcher:
                     return None
             except Exception as e:
                 self.__log_and_store_error(
-                    "Unexpected Error", 
+                    "Unexpected Error",
                     str(e),
                     f"URL: {url}, Attempt: {attempt + 1}/{max_retries}"
                 )
@@ -456,7 +455,7 @@ class FootballFetcher:
                     await asyncio.sleep(delay)
                 else:
                     return None
-        
+
         return None
 
     async def __getTopScorers(self):
@@ -469,14 +468,15 @@ class FootballFetcher:
                 body = {"league": league["id"], "season": current_year}
                 url = f"{K.BASE_URL}/players/topscorers"
 
-                self.logger.info(f"Fetching top scorers for league {league['id']} ({i + 1}/{len(self.leaguesStandings)})")
-                
+                self.logger.info(
+                    f"Fetching top scorers for league {league['id']} ({i + 1}/{len(self.leaguesStandings)})")
+
                 # Use the new rate-limited request method
                 data = await self.__make_api_request_with_retry(url, body)
-                
+
                 if data is None:
                     self.__log_and_store_error(
-                        "Top Scorers Error", 
+                        "Top Scorers Error",
                         f"Failed to fetch top scorers for league {league['id']} after all retries",
                         f"League ID: {league['id']}, League Name: {league.get('name', 'Unknown')}"
                     )
@@ -515,6 +515,6 @@ class FootballFetcher:
         full_message = f"{error_type}: {error_message}"
         if context:
             full_message += f" | Context: {context}"
-            
+
         self.logger.error(full_message)
         self.errors.append(full_message)
