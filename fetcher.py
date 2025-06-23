@@ -1,20 +1,12 @@
 import httpx
 import asyncio
-import smtplib
-import os
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 
 import pytz
 
 from firebase_manager import FirestoreManager
 from k import K
 from logging_config import configure_logging
-
-# Load environment variables
-load_dotenv()
 
 current_year = datetime.now().year
 
@@ -29,8 +21,7 @@ class FootballFetcher:
         self.firestore_manager = FirestoreManager()
         self.processed_league_ids = set()
         self.processed_topscorer_league_ids = set()
-        self.error_count = 0
-        self.max_errors_before_email = int(os.getenv('MAX_ERRORS_BEFORE_EMAIL', 3))
+        self.errors = []  # Store errors to return in response
 
     async def start(self):
         try:
@@ -44,16 +35,28 @@ class FootballFetcher:
             await self.__getTopScorers()
             await self.__storeData()
             
-            # Reset error count on successful completion
-            if self.error_count > 0:
-                self.logger.info(f"Completed successfully after {self.error_count} errors")
-                self.error_count = 0
+            # Return success response with any errors that occurred
+            return {
+                "status": "success",
+                "message": "Data fetched and stored successfully",
+                "errors": self.errors if self.errors else None,
+                "data_summary": {
+                    "leaguesStandings_count": len(self.leaguesStandings),
+                    "fixture_count": len(self.fixture),
+                    "lastGame_count": len(self.lastGame),
+                    "topScorers_count": len(self.topScorers)
+                }
+            }
                 
         except Exception as e:
-            self.error_count += 1
             error_msg = f"Critical error in FootballFetcher.start(): {str(e)}"
             self.logger.error(error_msg)
-            await self.__send_error_email("Critical Application Error", error_msg)
+            self.errors.append(error_msg)
+            return {
+                "status": "error",
+                "message": "Failed to fetch and store data",
+                "errors": self.errors
+            }
 
     async def resetData(self):
         self.leaguesStandings = []
@@ -62,6 +65,7 @@ class FootballFetcher:
         self.topScorers = []
         self.processed_league_ids.clear()
         self.processed_topscorer_league_ids.clear()
+        self.errors.clear()
 
     def __clean_data_for_firestore(self, data, path=""):
         """
@@ -146,7 +150,7 @@ class FootballFetcher:
             self.firestore_manager.update_data(collection_name, document_id, newData)
             self.logger.info("Data stored in Firestore.")
         except Exception as e:
-            await self.__log_and_notify_error(
+            self.__log_and_store_error(
                 "Firestore Storage Error", 
                 str(e),
                 "Failed to store data in Firestore"
@@ -160,7 +164,7 @@ class FootballFetcher:
         if data is not None:
             self.lastGame = data["response"]
         else:
-            await self.__log_and_notify_error(
+            self.__log_and_store_error(
                 "Last Game Data Error", 
                 "Failed to fetch last game data after all retries",
                 f"Team ID: {K.TEAM_ID}"
@@ -190,7 +194,7 @@ class FootballFetcher:
                 if next_game_predictions:
                     self.fixture[0]["predictions"] = next_game_predictions
         else:
-            await self.__log_and_notify_error(
+            self.__log_and_store_error(
                 "Fixture Data Error", 
                 "Failed to fetch fixture data after all retries",
                 f"Team ID: {K.TEAM_ID}"
@@ -222,7 +226,7 @@ class FootballFetcher:
                         break  # Stop checking other seasons once a match is found
             return filtered_leagues
         else:
-            await self.__log_and_notify_error(
+            self.__log_and_store_error(
                 "Leagues Data Error", 
                 "Failed to fetch leagues data after all retries",
                 f"Team ID: {K.TEAM_ID}"
@@ -285,7 +289,7 @@ class FootballFetcher:
                     self.leaguesStandings.append(restructured_league)
                     self.processed_league_ids.add(restructured_league["id"])
         else:
-            await self.__log_and_notify_error(
+            self.__log_and_store_error(
                 "Standings Data Error", 
                 f"Failed to fetch standings data for league {leagueId} after all retries",
                 f"League ID: {leagueId}, Season: {season}"
@@ -407,7 +411,7 @@ class FootballFetcher:
                     if response.status_code == 405:
                         error_data = response.json()
                         if 'errors' in error_data and 'rateLimit' in error_data['errors']:
-                            await self.__log_and_notify_error(
+                            self.__log_and_store_error(
                                 "Rate Limit Error", 
                                 error_data['errors']['rateLimit'],
                                 f"URL: {url}, Attempt: {attempt + 1}/{max_retries}"
@@ -420,7 +424,7 @@ class FootballFetcher:
                                 await asyncio.sleep(delay)
                                 continue
                             else:
-                                await self.__log_and_notify_error(
+                                self.__log_and_store_error(
                                     "Max Retries Reached", 
                                     "Rate limit exceeded after all retry attempts",
                                     f"URL: {url}"
@@ -431,7 +435,7 @@ class FootballFetcher:
                     return response.json()
                     
             except httpx.RequestError as e:
-                await self.__log_and_notify_error(
+                self.__log_and_store_error(
                     "Request Error", 
                     str(e),
                     f"URL: {url}, Attempt: {attempt + 1}/{max_retries}"
@@ -442,7 +446,7 @@ class FootballFetcher:
                 else:
                     return None
             except Exception as e:
-                await self.__log_and_notify_error(
+                self.__log_and_store_error(
                     "Unexpected Error", 
                     str(e),
                     f"URL: {url}, Attempt: {attempt + 1}/{max_retries}"
@@ -471,7 +475,7 @@ class FootballFetcher:
                 data = await self.__make_api_request_with_retry(url, body)
                 
                 if data is None:
-                    await self.__log_and_notify_error(
+                    self.__log_and_store_error(
                         "Top Scorers Error", 
                         f"Failed to fetch top scorers for league {league['id']} after all retries",
                         f"League ID: {league['id']}, League Name: {league.get('name', 'Unknown')}"
@@ -504,72 +508,13 @@ class FootballFetcher:
                     self.logger.info("Waiting 6 seconds before next top scorers request...")
                     await asyncio.sleep(6)
 
-    async def __send_error_email(self, subject, message):
+    def __log_and_store_error(self, error_type, error_message, context=""):
         """
-        Send error notification email
+        Log error and store it for response
         """
-        # Check if email notifications are enabled
-        email_enabled = os.getenv('EMAIL_ENABLED', 'true').lower() == 'true'
-        if not email_enabled:
-            self.logger.info("Email notifications are disabled")
-            return
-            
-        try:
-            # Get email configuration from environment variables
-            sender_email = os.getenv('SENDER_EMAIL')
-            sender_password = os.getenv('SENDER_PASSWORD')
-            receiver_email = os.getenv('RECEIVER_EMAIL', 'mdgdevelop@gmail.com')
-            smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-            smtp_port = int(os.getenv('SMTP_PORT', 587))
-            
-            # Validate required email settings
-            if not sender_email or not sender_password:
-                self.logger.error("Email configuration missing: SENDER_EMAIL and SENDER_PASSWORD must be set in .env file")
-                return
-            
-            # Create message
-            msg = MIMEMultipart()
-            msg['From'] = sender_email
-            msg['To'] = receiver_email
-            msg['Subject'] = f"[Futbol12 Alert] {subject}"
-            
-            # Add timestamp and error count to message
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            full_message = f"""
-Time: {timestamp}
-Error Count: {self.error_count}
-
-{message}
-
-This is an automated alert from your Futbol12 application.
-            """
-            
-            msg.attach(MIMEText(full_message, 'plain'))
-            
-            # Send email using Gmail SMTP
-            server = smtplib.SMTP(smtp_server, smtp_port)
-            server.starttls()
-            server.login(sender_email, sender_password)
-            text = msg.as_string()
-            server.sendmail(sender_email, receiver_email, text)
-            server.quit()
-            
-            self.logger.info(f"Error notification email sent to {receiver_email}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to send error email: {str(e)}")
-
-    async def __log_and_notify_error(self, error_type, error_message, context=""):
-        """
-        Log error and send email notification if threshold is reached
-        """
-        self.error_count += 1
         full_message = f"{error_type}: {error_message}"
         if context:
-            full_message += f"\nContext: {context}"
+            full_message += f" | Context: {context}"
             
         self.logger.error(full_message)
-        
-        # Send email if we've hit the threshold
-        if self.error_count >= self.max_errors_before_email:
-            await self.__send_error_email(error_type, full_message)
+        self.errors.append(full_message)
