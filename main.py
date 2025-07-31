@@ -1,5 +1,6 @@
 import threading
 import os
+import asyncio
 
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -27,13 +28,13 @@ logger = configure_logging()
 
 
 @app.route("/", methods=["GET"])
-async def home_welcome():
+def home_welcome():
     logger.info("home page API.")
     return jsonify({"status": 200, "message": "Welcome to the home page."})
 
 
 @app.route("/ping", methods=["GET"])
-async def ping():
+def ping():
     logger.info("Pinged API.")
     return jsonify({"status": 200, "message": "pong"})
 
@@ -42,8 +43,22 @@ async def ping():
 @app.route("/trigger-fetcher", methods=["GET"])
 async def trigger_fetcher():
     logger.info("Manually triggering fetcher.")
-    await fetcher.start()  # Directly call the fetcher's start method
-    return jsonify({"status": 200, "message": "Fetcher triggered."})
+    result = await fetcher.start()  # Await the async fetcher
+    
+    # Return the actual result from the fetcher
+    if result["status"] == "success":
+        return jsonify({
+            "status": 200,
+            "message": result["message"],
+            "errors": result["errors"],
+            "data_summary": result["data_summary"]
+        })
+    else:
+        return jsonify({
+            "status": 500,
+            "message": result["message"],
+            "errors": result["errors"]
+        })
 
 
 if __name__ == "__main__":

@@ -129,11 +129,70 @@ class FootballFetcher:
         newData = {}
 
         try:
-            # Always include all fields with at least empty lists
-            newData["leaguesStandings"] = self.__clean_data_for_firestore(self.leaguesStandings, "leaguesStandings")
-            newData["fixture"] = self.__clean_data_for_firestore(self.fixture, "fixture")
-            newData["lastGame"] = self.__clean_data_for_firestore(self.lastGame, "lastGame")
-            newData["topScorers"] = self.__clean_data_for_firestore(self.topScorers, "topScorers")
+            # Get existing data to preserve "Tabla Anual" entries
+            existing_data = self.firestore_manager.read_data(collection_name, document_id)
+            preserved_tabla_anual = []
+            
+            if existing_data and "leaguesStandings" in existing_data:
+                for standing in existing_data["leaguesStandings"]:
+                    if isinstance(standing, dict) and standing.get("name") == "Tabla Anual":
+                        preserved_tabla_anual.append(standing)
+                        self.logger.info("Preserving existing 'Tabla Anual' standings entry")
+
+            # Check if we have valid new data to store
+            has_valid_data = (
+                len(self.leaguesStandings) > 0 or 
+                len(self.fixture) > 0 or 
+                len(self.lastGame) > 0 or 
+                len(self.topScorers) > 0
+            )
+
+            if has_valid_data:
+                # Prepare new standings data
+                new_standings = self.__clean_data_for_firestore(self.leaguesStandings, "leaguesStandings")
+                
+                # Add preserved "Tabla Anual" entries to the new standings
+                if preserved_tabla_anual:
+                    new_standings.extend(preserved_tabla_anual)
+                    self.logger.info(f"Added {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries to standings")
+
+                # Store new data with preserved "Tabla Anual"
+                newData["leaguesStandings"] = new_standings
+                newData["fixture"] = self.__clean_data_for_firestore(self.fixture, "fixture")
+                newData["lastGame"] = self.__clean_data_for_firestore(self.lastGame, "lastGame")
+                newData["topScorers"] = self.__clean_data_for_firestore(self.topScorers, "topScorers")
+                
+                self.logger.info("Storing new data with preserved 'Tabla Anual' entries")
+            else:
+                # If no valid new data, preserve existing data and only update "Tabla Anual" if needed
+                if existing_data:
+                    newData = existing_data.copy()
+                    
+                    # Only preserve "Tabla Anual" if it doesn't already exist
+                    existing_tabla_anual = False
+                    if "leaguesStandings" in newData:
+                        for standing in newData["leaguesStandings"]:
+                            if isinstance(standing, dict) and standing.get("name") == "Tabla Anual":
+                                existing_tabla_anual = True
+                                break
+                    
+                    if not existing_tabla_anual and preserved_tabla_anual:
+                        if "leaguesStandings" not in newData:
+                            newData["leaguesStandings"] = []
+                        newData["leaguesStandings"].extend(preserved_tabla_anual)
+                        self.logger.info(f"Added {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries to existing data")
+                else:
+                    # No existing data and no new data, create empty structure
+                    newData = {
+                        "leaguesStandings": preserved_tabla_anual,
+                        "fixture": [],
+                        "lastGame": [],
+                        "topScorers": []
+                    }
+                    if preserved_tabla_anual:
+                        self.logger.info(f"Created new document with {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries")
+                
+                self.logger.info("No valid new data available, preserving existing data")
 
             # Log the structure of the data before storing
             self.logger.info("Data structure before storing:")

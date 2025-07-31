@@ -72,16 +72,20 @@ class FirestoreManager:
         except Exception as e:
             self.logger.error(f"Failed to add data to Firestore: {e}")
 
-    # def read_data(self, collection_name, document_id):
-    #     """
-    #     Reads data from a specific document in a Firestore collection.
-    #     """
-    #     doc_ref = self.db.collection(collection_name).document(document_id)
-    #     doc = doc_ref.get()
-    #     if doc.exists:
-    #         return doc.to_dict()
-    #     else:
-    #         return None
+    def read_data(self, collection_name, document_id):
+        """
+        Reads data from a specific document in a Firestore collection.
+        """
+        try:
+            doc_ref = self.db.collection(collection_name).document(document_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict()
+            else:
+                return None
+        except Exception as e:
+            self.logger.error(f"Failed to read data from Firestore: {e}")
+            return None
     #
     # def delete_data(self, collection_name, document_id):
     #     """
