@@ -516,61 +516,82 @@ class FootballFetcher:
         return None
 
     async def __getTopScorers(self):
-        if self.leaguesStandings:
-            # Create a set of unique league IDs to avoid duplicate API calls
-            unique_league_ids = set()
+        if not self.leaguesStandings:
+            self.logger.warning("No leagues standings available for top scorers")
+            return
+
+        # Create a set of unique league IDs to avoid duplicate API calls
+        # League 128 appears multiple times in standings due to different groups
+        unique_league_ids = set()
+        
+        for league in self.leaguesStandings:
+            league_id = league["id"]
+            unique_league_ids.add(league_id)
+        
+        self.logger.info(f"Found {len(unique_league_ids)} unique leagues for top scorers: {sorted(unique_league_ids)}")
+        
+        # Process each unique league
+        for i, league_id in enumerate(sorted(unique_league_ids)):
+            # Find the first occurrence of this league in standings for metadata
+            league_metadata = None
+            for league in self.leaguesStandings:
+                if league["id"] == league_id:
+                    league_metadata = league
+                    break
             
-            for i, league in enumerate(self.leaguesStandings):
-                league_id = league["id"]
-                
-                # Skip if we've already processed this league ID
-                if league_id in unique_league_ids:
-                    self.logger.info(f"Skipping duplicate league ID {league_id} ({league.get('name', 'Unknown')})")
-                    continue
-                
-                unique_league_ids.add(league_id)
-                
-                body = {"league": league_id, "season": current_year}
-                url = f"{K.BASE_URL}/players/topscorers"
+            if not league_metadata:
+                self.logger.warning(f"Could not find metadata for league {league_id}")
+                continue
+            
+            body = {"league": league_id, "season": current_year}
+            url = f"{K.BASE_URL}/players/topscorers"
 
-                self.logger.info(
-                    f"Fetching top scorers for league {league_id} - {league.get('name', 'Unknown')} ({len(unique_league_ids)}/{len(set(l['id'] for l in self.leaguesStandings))})")
+            self.logger.info(f"Fetching top scorers for league {league_id} - {league_metadata.get('name', 'Unknown')} ({i+1}/{len(unique_league_ids)})")
 
-                # Use the new rate-limited request method
-                data = await self.__make_api_request_with_retry(url, body)
+            # Use the rate-limited request method
+            data = await self.__make_api_request_with_retry(url, body)
 
-                if data is None:
-                    self.__log_and_store_error(
-                        "Top Scorers Error",
-                        f"Failed to fetch top scorers for league {league_id} after all retries",
-                        f"League ID: {league_id}, League Name: {league.get('name', 'Unknown')}"
-                    )
-                    continue
+            if data is None:
+                self.__log_and_store_error(
+                    "Top Scorers Error",
+                    f"Failed to fetch top scorers for league {league_id} after all retries",
+                    f"League ID: {league_id}, League Name: {league_metadata.get('name', 'Unknown')}"
+                )
+                continue
 
-                if len(data.get("response", [])) > 0:
-                    # Handle special case for Argentine league
-                    league_name = "Primera LPF" if league_id == 128 else league["name"]
+            # Check for rate limit errors in the response
+            if data.get("errors") and "rateLimit" in data["errors"]:
+                self.logger.warning(f"Rate limit hit for league {league_id}: {data['errors']['rateLimit']}")
+                # Skip this league and continue with others
+                continue
 
-                    # Create a structured object for the league's top scorers
-                    league_top_scorers = {
-                        "league_id": league_id,
-                        "league_name": league_name,
-                        "country": league["country"],
-                        "logo": league["logo"],
-                        "flag": league["flag"],
-                        "season": current_year,
-                        "scorers": data["response"]
-                    }
+            if len(data.get("response", [])) > 0:
+                # Handle special case for Argentine league
+                league_name = "Primera LPF" if league_id == 128 else league_metadata["name"]
 
-                    self.topScorers.append(league_top_scorers)
-                    self.logger.info(f"Successfully fetched top scorers for league {league_name}")
-                else:
-                    self.logger.warning(f"No top scorers data available for league {league_id}")
+                # Create a structured object for the league's top scorers
+                league_top_scorers = {
+                    "league_id": league_id,
+                    "league_name": league_name,
+                    "country": league_metadata["country"],
+                    "logo": league_metadata["logo"],
+                    "flag": league_metadata["flag"],
+                    "season": current_year,
+                    "scorers": data["response"]
+                }
 
-                # Add delay between requests to avoid rate limiting
-                if len(unique_league_ids) < len(set(l['id'] for l in self.leaguesStandings)):  # Don't delay after the last request
-                    self.logger.info("Waiting 6 seconds before next top scorers request...")
-                    await asyncio.sleep(6)
+                self.topScorers.append(league_top_scorers)
+                self.logger.info(f"Successfully fetched {len(data['response'])} top scorers for {league_name}")
+            else:
+                self.logger.warning(f"No top scorers data available for league {league_id} - skipping entry to avoid empty scorers array")
+                # Don't add empty entry - skip this league entirely
+
+            # Add delay between requests to avoid rate limiting (except for the last request)
+            # API limit is 10 requests per minute, so we need at least 6 seconds between requests
+            # Using 12 seconds to be extra safe and avoid any rate limiting issues
+            if i < len(unique_league_ids) - 1:
+                self.logger.info("Waiting 12 seconds before next top scorers request to avoid rate limiting...")
+                await asyncio.sleep(12)
 
     def __log_and_store_error(self, error_type, error_message, context=""):
         """
