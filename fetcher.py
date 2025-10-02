@@ -127,15 +127,25 @@ class FootballFetcher:
         newData = {}
 
         try:
-            # Get existing data to preserve "Tabla Anual" entries
+            # Get existing data to preserve "Tabla Anual" entries and enabled/order properties
             existing_data = self.firestore_manager.read_data(collection_name, document_id)
             preserved_tabla_anual = []
+            existing_standings_metadata = {}
             
             if existing_data and "leaguesStandings" in existing_data:
                 for standing in existing_data["leaguesStandings"]:
-                    if isinstance(standing, dict) and standing.get("name") == "Tabla Anual":
-                        preserved_tabla_anual.append(standing)
-                        self.logger.info("Preserving existing 'Tabla Anual' standings entry")
+                    if isinstance(standing, dict):
+                        if standing.get("name") == "Tabla Anual":
+                            preserved_tabla_anual.append(standing)
+                            self.logger.info("Preserving existing 'Tabla Anual' standings entry")
+                        else:
+                            # Store metadata for existing standings (enabled and order properties)
+                            standing_id = standing.get("id")
+                            if standing_id:
+                                existing_standings_metadata[standing_id] = {
+                                    "enabled": standing.get("enabled", True),
+                                    "order": standing.get("order", 0)
+                                }
 
             # Check if we have valid new data to store
             has_valid_data = (
@@ -146,8 +156,23 @@ class FootballFetcher:
             )
 
             if has_valid_data:
-                # Prepare new standings data
+                # Prepare new standings data with preserved enabled/order properties
                 new_standings = self.__clean_data_for_firestore(self.leaguesStandings, "leaguesStandings")
+                
+                # Preserve enabled and order properties from existing data
+                for standing in new_standings:
+                    if isinstance(standing, dict):
+                        standing_id = standing.get("id")
+                        if standing_id in existing_standings_metadata:
+                            # Preserve existing enabled and order values
+                            standing["enabled"] = existing_standings_metadata[standing_id]["enabled"]
+                            standing["order"] = existing_standings_metadata[standing_id]["order"]
+                            self.logger.info(f"Preserved enabled={standing['enabled']} and order={standing['order']} for league {standing_id}")
+                        else:
+                            # Set default values for new standings
+                            standing["enabled"] = True
+                            standing["order"] = 0
+                            self.logger.info(f"Set default enabled=True and order=0 for new league {standing_id}")
                 
                 # Add preserved "Tabla Anual" entries to the new standings
                 if preserved_tabla_anual:
@@ -160,7 +185,7 @@ class FootballFetcher:
                 newData["lastGame"] = self.__clean_data_for_firestore(self.lastGame, "lastGame")
                 newData["topScorers"] = self.__clean_data_for_firestore(self.topScorers, "topScorers")
                 
-                self.logger.info("Storing new data with preserved 'Tabla Anual' entries")
+                self.logger.info("Storing new data with preserved 'Tabla Anual' entries and enabled/order properties")
             else:
                 # If no valid new data, preserve existing data and only update "Tabla Anual" if needed
                 if existing_data:
@@ -316,6 +341,8 @@ class FootballFetcher:
                         "flag": leagueWithStandings["flag"],
                         "season": leagueWithStandings["season"],
                         "group": group_name,
+                        "enabled": True,  # Default value, will be overridden if exists in Firebase
+                        "order": 0,  # Default value, will be overridden if exists in Firebase
                         "standings": standings_group
                     }
 
@@ -332,6 +359,8 @@ class FootballFetcher:
                     "logo": leagueWithStandings["logo"],
                     "flag": leagueWithStandings["flag"],
                     "season": leagueWithStandings["season"],
+                    "enabled": True,  # Default value, will be overridden if exists in Firebase
+                    "order": 0,  # Default value, will be overridden if exists in Firebase
                     "standings": [],
                 }
 
@@ -516,82 +545,57 @@ class FootballFetcher:
         return None
 
     async def __getTopScorers(self):
-        if not self.leaguesStandings:
-            self.logger.warning("No leagues standings available for top scorers")
+        # Hard code to only fetch top scorers for league 128 (Primera LPF)
+        league_id = 128
+        
+        # Find the first occurrence of this league in standings for metadata
+        league_metadata = None
+        for league in self.leaguesStandings:
+            if league["id"] == league_id:
+                league_metadata = league
+                break
+        
+        if not league_metadata:
+            self.logger.warning(f"Could not find metadata for league {league_id} in standings")
+            return
+        
+        body = {"league": league_id, "season": current_year}
+        url = f"{K.BASE_URL}/players/topscorers"
+
+        self.logger.info(f"Fetching top scorers for league {league_id} - Primera LPF")
+
+        # Use the rate-limited request method
+        data = await self.__make_api_request_with_retry(url, body)
+
+        if data is None:
+            self.__log_and_store_error(
+                "Top Scorers Error",
+                f"Failed to fetch top scorers for league {league_id} after all retries",
+                f"League ID: {league_id}, League Name: Primera LPF"
+            )
             return
 
-        # Create a set of unique league IDs to avoid duplicate API calls
-        # League 128 appears multiple times in standings due to different groups
-        unique_league_ids = set()
-        
-        for league in self.leaguesStandings:
-            league_id = league["id"]
-            unique_league_ids.add(league_id)
-        
-        self.logger.info(f"Found {len(unique_league_ids)} unique leagues for top scorers: {sorted(unique_league_ids)}")
-        
-        # Process each unique league
-        for i, league_id in enumerate(sorted(unique_league_ids)):
-            # Find the first occurrence of this league in standings for metadata
-            league_metadata = None
-            for league in self.leaguesStandings:
-                if league["id"] == league_id:
-                    league_metadata = league
-                    break
-            
-            if not league_metadata:
-                self.logger.warning(f"Could not find metadata for league {league_id}")
-                continue
-            
-            body = {"league": league_id, "season": current_year}
-            url = f"{K.BASE_URL}/players/topscorers"
+        # Check for rate limit errors in the response
+        if data.get("errors") and "rateLimit" in data["errors"]:
+            self.logger.warning(f"Rate limit hit for league {league_id}: {data['errors']['rateLimit']}")
+            return
 
-            self.logger.info(f"Fetching top scorers for league {league_id} - {league_metadata.get('name', 'Unknown')} ({i+1}/{len(unique_league_ids)})")
+        if len(data.get("response", [])) > 0:
+            # Create a structured object for the league's top scorers
+            league_top_scorers = {
+                "league_id": league_id,
+                "league_name": "Primera LPF",
+                "country": league_metadata["country"],
+                "logo": league_metadata["logo"],
+                "flag": league_metadata["flag"],
+                "season": current_year,
+                "scorers": data["response"]
+            }
 
-            # Use the rate-limited request method
-            data = await self.__make_api_request_with_retry(url, body)
-
-            if data is None:
-                self.__log_and_store_error(
-                    "Top Scorers Error",
-                    f"Failed to fetch top scorers for league {league_id} after all retries",
-                    f"League ID: {league_id}, League Name: {league_metadata.get('name', 'Unknown')}"
-                )
-                continue
-
-            # Check for rate limit errors in the response
-            if data.get("errors") and "rateLimit" in data["errors"]:
-                self.logger.warning(f"Rate limit hit for league {league_id}: {data['errors']['rateLimit']}")
-                # Skip this league and continue with others
-                continue
-
-            if len(data.get("response", [])) > 0:
-                # Handle special case for Argentine league
-                league_name = "Primera LPF" if league_id == 128 else league_metadata["name"]
-
-                # Create a structured object for the league's top scorers
-                league_top_scorers = {
-                    "league_id": league_id,
-                    "league_name": league_name,
-                    "country": league_metadata["country"],
-                    "logo": league_metadata["logo"],
-                    "flag": league_metadata["flag"],
-                    "season": current_year,
-                    "scorers": data["response"]
-                }
-
-                self.topScorers.append(league_top_scorers)
-                self.logger.info(f"Successfully fetched {len(data['response'])} top scorers for {league_name}")
-            else:
-                self.logger.warning(f"No top scorers data available for league {league_id} - skipping entry to avoid empty scorers array")
-                # Don't add empty entry - skip this league entirely
-
-            # Add delay between requests to avoid rate limiting (except for the last request)
-            # API limit is 10 requests per minute, so we need at least 6 seconds between requests
-            # Using 12 seconds to be extra safe and avoid any rate limiting issues
-            if i < len(unique_league_ids) - 1:
-                self.logger.info("Waiting 12 seconds before next top scorers request to avoid rate limiting...")
-                await asyncio.sleep(12)
+            self.topScorers.append(league_top_scorers)
+            self.logger.info(f"Successfully fetched {len(data['response'])} top scorers for Primera LPF")
+        else:
+            self.logger.warning(f"No top scorers data available for league {league_id} - skipping entry to avoid empty scorers array")
 
     def __log_and_store_error(self, error_type, error_message, context=""):
         """
