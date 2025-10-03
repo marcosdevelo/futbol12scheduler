@@ -483,13 +483,13 @@ class FootballFetcher:
             self.lastGame[0]["lineups"] = []
             self.logger.info("No lineups found in response")
 
-    async def __make_api_request_with_retry(self, url, params, max_retries=3, base_delay=6):
+    async def __make_api_request_with_retry(self, url, params, max_retries=3, base_delay=6, timeout=30):
         """
         Make API request with exponential backoff for rate limiting
         """
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     response = await client.get(url, headers=K.headers, params=params)
 
                     # Check for rate limit error
@@ -519,6 +519,18 @@ class FootballFetcher:
                     response.raise_for_status()
                     return response.json()
 
+            except httpx.TimeoutException as e:
+                self.__log_and_store_error(
+                    "Timeout Error",
+                    f"Request timed out after {timeout}s: {str(e)}",
+                    f"URL: {url}, Attempt: {attempt + 1}/{max_retries}"
+                )
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    self.logger.info(f"Timeout occurred, waiting {delay} seconds before retry...")
+                    await asyncio.sleep(delay)
+                else:
+                    return None
             except httpx.RequestError as e:
                 self.__log_and_store_error(
                     "Request Error",
@@ -562,10 +574,10 @@ class FootballFetcher:
         body = {"league": league_id, "season": current_year}
         url = f"{K.BASE_URL}/players/topscorers"
 
-        self.logger.info(f"Fetching top scorers for league {league_id} - Primera LPF")
+        self.logger.info(f"Fetching top scorers for league {league_id} - Primera LPF with 60s timeout")
 
-        # Use the rate-limited request method
-        data = await self.__make_api_request_with_retry(url, body)
+        # Use the rate-limited request method with extended timeout for top scorers
+        data = await self.__make_api_request_with_retry(url, body, max_retries=3, base_delay=6, timeout=60)
 
         if data is None:
             self.__log_and_store_error(
@@ -573,6 +585,8 @@ class FootballFetcher:
                 f"Failed to fetch top scorers for league {league_id} after all retries",
                 f"League ID: {league_id}, League Name: Primera LPF"
             )
+            # Set empty top scorers to avoid breaking the data structure
+            self.topScorers = []
             return
 
         # Check for rate limit errors in the response
@@ -593,7 +607,7 @@ class FootballFetcher:
             }
 
             self.topScorers.append(league_top_scorers)
-            self.logger.info(f"Successfully fetched {len(data['response'])} top scorers for Primera LPF")
+            self.logger.info(f"✅ Successfully fetched {len(data['response'])} top scorers for Primera LPF")
         else:
             self.logger.warning(f"No top scorers data available for league {league_id} - skipping entry to avoid empty scorers array")
 
