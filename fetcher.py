@@ -15,7 +15,6 @@ class FootballFetcher:
         self.leaguesStandings = []
         self.fixture = []
         self.lastGame = []
-        self.topScorers = []
         self.logger = configure_logging()
         self.firestore_manager = FirestoreManager()
         self.processed_league_ids = set()
@@ -30,7 +29,6 @@ class FootballFetcher:
             await self.__getLastGameStatistics()
             await self.__getLastGameEvents()
             await self.__getLastGameLineups()
-            await self.__getTopScorers()
             await self.__storeData()
 
             # Return success response with any errors that occurred
@@ -41,8 +39,7 @@ class FootballFetcher:
                 "data_summary": {
                     "leaguesStandings_count": len(self.leaguesStandings),
                     "fixture_count": len(self.fixture),
-                    "lastGame_count": len(self.lastGame),
-                    "topScorers_count": len(self.topScorers)
+                    "lastGame_count": len(self.lastGame)
                 }
             }
 
@@ -60,7 +57,6 @@ class FootballFetcher:
         self.leaguesStandings = []
         self.fixture = []
         self.lastGame = []
-        self.topScorers = []
         self.processed_league_ids.clear()
         self.errors.clear()
 
@@ -151,8 +147,7 @@ class FootballFetcher:
             has_valid_data = (
                 len(self.leaguesStandings) > 0 or 
                 len(self.fixture) > 0 or 
-                len(self.lastGame) > 0 or 
-                len(self.topScorers) > 0
+                len(self.lastGame) > 0
             )
 
             if has_valid_data:
@@ -183,7 +178,6 @@ class FootballFetcher:
                 newData["leaguesStandings"] = new_standings
                 newData["fixture"] = self.__clean_data_for_firestore(self.fixture, "fixture")
                 newData["lastGame"] = self.__clean_data_for_firestore(self.lastGame, "lastGame")
-                newData["topScorers"] = self.__clean_data_for_firestore(self.topScorers, "topScorers")
                 
                 self.logger.info("Storing new data with preserved 'Tabla Anual' entries and enabled/order properties")
             else:
@@ -209,8 +203,7 @@ class FootballFetcher:
                     newData = {
                         "leaguesStandings": preserved_tabla_anual,
                         "fixture": [],
-                        "lastGame": [],
-                        "topScorers": []
+                        "lastGame": []
                     }
                     if preserved_tabla_anual:
                         self.logger.info(f"Created new document with {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries")
@@ -556,60 +549,73 @@ class FootballFetcher:
 
         return None
 
-    async def __getTopScorers(self):
-        # Hard code to only fetch top scorers for league 128 (Primera LPF)
-        league_id = 128
+    async def fetch_top_scorers_for_leagues(self, league_ids):
+        """
+        Public method to fetch top scorers for multiple leagues.
         
-        # Find the first occurrence of this league in standings for metadata
-        league_metadata = None
-        for league in self.leaguesStandings:
-            if league["id"] == league_id:
-                league_metadata = league
-                break
+        Args:
+            league_ids: List of league IDs to fetch top scorers for
+            
+        Returns:
+            Dictionary with status, message, and data for each league
+        """
+        results = []
+        errors = []
         
-        if not league_metadata:
-            self.logger.warning(f"Could not find metadata for league {league_id} in standings")
-            return
+        for league_id in league_ids:
+            try:
+                body = {"league": league_id, "season": current_year}
+                url = f"{K.BASE_URL}/players/topscorers"
+
+                self.logger.info(f"Fetching top scorers for league {league_id} with 60s timeout")
+
+                # Use the rate-limited request method with extended timeout for top scorers
+                data = await self.__make_api_request_with_retry(url, body, max_retries=3, base_delay=6, timeout=60)
+
+                if data is None:
+                    error_msg = f"Failed to fetch top scorers for league {league_id} after all retries"
+                    self.logger.error(error_msg)
+                    errors.append({"league_id": league_id, "error": error_msg})
+                    continue
+
+                # Check for rate limit errors in the response
+                if data.get("errors") and "rateLimit" in data["errors"]:
+                    error_msg = f"Rate limit hit for league {league_id}: {data['errors']['rateLimit']}"
+                    self.logger.warning(error_msg)
+                    errors.append({"league_id": league_id, "error": error_msg})
+                    continue
+
+                if len(data.get("response", [])) > 0:
+                    # Create a structured object for the league's top scorers
+                    league_top_scorers = {
+                        "league_id": league_id,
+                        "season": current_year,
+                        "scorers": data["response"],
+                        "count": len(data["response"])
+                    }
+
+                    results.append(league_top_scorers)
+                    self.logger.info(f"✅ Successfully fetched {len(data['response'])} top scorers for league {league_id}")
+                else:
+                    self.logger.warning(f"No top scorers data available for league {league_id}")
+                    results.append({
+                        "league_id": league_id,
+                        "season": current_year,
+                        "scorers": [],
+                        "count": 0
+                    })
+                    
+            except Exception as e:
+                error_msg = f"Exception fetching top scorers for league {league_id}: {str(e)}"
+                self.logger.error(error_msg)
+                errors.append({"league_id": league_id, "error": error_msg})
         
-        body = {"league": league_id, "season": current_year}
-        url = f"{K.BASE_URL}/players/topscorers"
-
-        self.logger.info(f"Fetching top scorers for league {league_id} - Primera LPF with 60s timeout")
-
-        # Use the rate-limited request method with extended timeout for top scorers
-        data = await self.__make_api_request_with_retry(url, body, max_retries=3, base_delay=6, timeout=60)
-
-        if data is None:
-            self.__log_and_store_error(
-                "Top Scorers Error",
-                f"Failed to fetch top scorers for league {league_id} after all retries",
-                f"League ID: {league_id}, League Name: Primera LPF"
-            )
-            # Set empty top scorers to avoid breaking the data structure
-            self.topScorers = []
-            return
-
-        # Check for rate limit errors in the response
-        if data.get("errors") and "rateLimit" in data["errors"]:
-            self.logger.warning(f"Rate limit hit for league {league_id}: {data['errors']['rateLimit']}")
-            return
-
-        if len(data.get("response", [])) > 0:
-            # Create a structured object for the league's top scorers
-            league_top_scorers = {
-                "league_id": league_id,
-                "league_name": "Primera LPF",
-                "country": league_metadata["country"],
-                "logo": league_metadata["logo"],
-                "flag": league_metadata["flag"],
-                "season": current_year,
-                "scorers": data["response"]
-            }
-
-            self.topScorers.append(league_top_scorers)
-            self.logger.info(f"✅ Successfully fetched {len(data['response'])} top scorers for Primera LPF")
-        else:
-            self.logger.warning(f"No top scorers data available for league {league_id} - skipping entry to avoid empty scorers array")
+        return {
+            "status": "success" if len(results) > 0 else "error",
+            "message": f"Fetched top scorers for {len(results)} out of {len(league_ids)} leagues",
+            "data": results,
+            "errors": errors if errors else None
+        }
 
     def __log_and_store_error(self, error_type, error_message, context=""):
         """
