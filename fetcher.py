@@ -143,72 +143,47 @@ class FootballFetcher:
                                     "order": standing.get("order", 0)
                                 }
 
-            # Check if we have valid new data to store
-            has_valid_data = (
-                len(self.leaguesStandings) > 0 or 
-                len(self.fixture) > 0 or 
-                len(self.lastGame) > 0
-            )
+            # Always prepare standings data (even if empty) with preserved enabled/order properties
+            new_standings = self.__clean_data_for_firestore(self.leaguesStandings, "leaguesStandings")
+            
+            # Preserve enabled and order properties from existing data
+            for standing in new_standings:
+                if isinstance(standing, dict):
+                    standing_id = standing.get("id")
+                    if standing_id in existing_standings_metadata:
+                        # Preserve existing enabled and order values
+                        standing["enabled"] = existing_standings_metadata[standing_id]["enabled"]
+                        standing["order"] = existing_standings_metadata[standing_id]["order"]
+                        self.logger.info(f"Preserved enabled={standing['enabled']} and order={standing['order']} for league {standing_id}")
+                    else:
+                        # Set default values for new standings
+                        standing["enabled"] = True
+                        standing["order"] = 0
+                        self.logger.info(f"Set default enabled=True and order=0 for new league {standing_id}")
+            
+            # Add preserved "Tabla Anual" entries to the new standings
+            if preserved_tabla_anual:
+                new_standings.extend(preserved_tabla_anual)
+                self.logger.info(f"Added {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries to standings")
 
-            if has_valid_data:
-                # Prepare new standings data with preserved enabled/order properties
-                new_standings = self.__clean_data_for_firestore(self.leaguesStandings, "leaguesStandings")
-                
-                # Preserve enabled and order properties from existing data
-                for standing in new_standings:
-                    if isinstance(standing, dict):
-                        standing_id = standing.get("id")
-                        if standing_id in existing_standings_metadata:
-                            # Preserve existing enabled and order values
-                            standing["enabled"] = existing_standings_metadata[standing_id]["enabled"]
-                            standing["order"] = existing_standings_metadata[standing_id]["order"]
-                            self.logger.info(f"Preserved enabled={standing['enabled']} and order={standing['order']} for league {standing_id}")
-                        else:
-                            # Set default values for new standings
-                            standing["enabled"] = True
-                            standing["order"] = 0
-                            self.logger.info(f"Set default enabled=True and order=0 for new league {standing_id}")
-                
-                # Add preserved "Tabla Anual" entries to the new standings
-                if preserved_tabla_anual:
-                    new_standings.extend(preserved_tabla_anual)
-                    self.logger.info(f"Added {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries to standings")
-
-                # Store new data with preserved "Tabla Anual"
-                newData["leaguesStandings"] = new_standings
-                newData["fixture"] = self.__clean_data_for_firestore(self.fixture, "fixture")
-                newData["lastGame"] = self.__clean_data_for_firestore(self.lastGame, "lastGame")
-                
-                self.logger.info("Storing new data with preserved 'Tabla Anual' entries and enabled/order properties")
-            else:
-                # If no valid new data, preserve existing data and only update "Tabla Anual" if needed
-                if existing_data:
-                    newData = existing_data.copy()
-                    
-                    # Only preserve "Tabla Anual" if it doesn't already exist
-                    existing_tabla_anual = False
-                    if "leaguesStandings" in newData:
-                        for standing in newData["leaguesStandings"]:
-                            if isinstance(standing, dict) and standing.get("name") == "Tabla Anual":
-                                existing_tabla_anual = True
-                                break
-                    
-                    if not existing_tabla_anual and preserved_tabla_anual:
-                        if "leaguesStandings" not in newData:
-                            newData["leaguesStandings"] = []
-                        newData["leaguesStandings"].extend(preserved_tabla_anual)
-                        self.logger.info(f"Added {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries to existing data")
-                else:
-                    # No existing data and no new data, create empty structure
-                    newData = {
-                        "leaguesStandings": preserved_tabla_anual,
-                        "fixture": [],
-                        "lastGame": []
-                    }
-                    if preserved_tabla_anual:
-                        self.logger.info(f"Created new document with {len(preserved_tabla_anual)} preserved 'Tabla Anual' entries")
-                
-                self.logger.info("No valid new data available, preserving existing data")
+            # Always store fixture and lastGame data (even if empty) since we always fetch them
+            # This ensures empty arrays are properly stored in Firebase when API returns no data
+            newData["leaguesStandings"] = new_standings
+            newData["fixture"] = self.__clean_data_for_firestore(self.fixture, "fixture")
+            
+            # Ensure lastGame is always stored as a list (empty array if no data)
+            cleaned_last_game = self.__clean_data_for_firestore(self.lastGame, "lastGame")
+            if not isinstance(cleaned_last_game, list):
+                cleaned_last_game = []
+            newData["lastGame"] = cleaned_last_game
+            
+            # Log if fixtures or lastGame are empty
+            if len(newData["fixture"]) == 0:
+                self.logger.info("Storing empty fixtures array in Firebase (no upcoming fixtures)")
+            if len(newData["lastGame"]) == 0:
+                self.logger.info("Storing empty lastGame array in Firebase (no last game data)")
+            
+            self.logger.info("Storing data with preserved 'Tabla Anual' entries and enabled/order properties")
 
             # Log the structure of the data before storing
             self.logger.info("Data structure before storing:")
@@ -236,7 +211,16 @@ class FootballFetcher:
 
         data = await self.__make_api_request_with_retry(url, body)
         if data is not None:
-            self.lastGame = data["response"]
+            # Handle empty response - API returns empty array when no last game available
+            if "response" in data and isinstance(data["response"], list):
+                self.lastGame = data["response"]
+                if len(self.lastGame) == 0:
+                    self.logger.info(f"No last game found for team {K.TEAM_ID}")
+                else:
+                    self.logger.info(f"Successfully fetched last game for team {K.TEAM_ID}")
+            else:
+                self.lastGame = []
+                self.logger.warning("Last game response format is invalid")
         else:
             self.__log_and_store_error(
                 "Last Game Data Error",
@@ -260,10 +244,18 @@ class FootballFetcher:
 
         data = await self.__make_api_request_with_retry(url, body)
         if data is not None:
-            self.fixture = data["response"]
+            # Handle empty response - API returns empty array when no fixtures available
+            if "response" in data and isinstance(data["response"], list):
+                self.fixture = data["response"]
+            else:
+                self.fixture = []
+            
+            # Log if fixtures are empty
+            if len(self.fixture) == 0:
+                self.logger.info(f"No upcoming fixtures found for team {K.TEAM_ID}, will store empty array")
 
             # Get predictions for the next game (first fixture)
-            if len(self.fixture) > 0:
+            if len(self.fixture) > 0 and self.fixture[0].get("fixture", {}).get("id") is not None:
                 next_game_predictions = await self.__getFixturePredictions(self.fixture[0]["fixture"]["id"])
                 if next_game_predictions:
                     self.fixture[0]["predictions"] = next_game_predictions
@@ -586,6 +578,24 @@ class FootballFetcher:
                     continue
 
                 if len(data.get("response", [])) > 0:
+                    # Extract league metadata from the first player's statistics
+                    # All players should have the same league info in their statistics
+                    league_metadata = None
+                    first_player = data["response"][0]
+                    
+                    if "statistics" in first_player and len(first_player["statistics"]) > 0:
+                        first_stat = first_player["statistics"][0]
+                        if "league" in first_stat:
+                            league_info = first_stat["league"]
+                            league_metadata = {
+                                "id": league_info.get("id"),
+                                "name": league_info.get("name"),
+                                "country": league_info.get("country"),
+                                "logo": league_info.get("logo"),
+                                "flag": league_info.get("flag"),
+                                "season": league_info.get("season")
+                            }
+                    
                     # Create a structured object for the league's top scorers
                     league_top_scorers = {
                         "league_id": league_id,
@@ -593,16 +603,25 @@ class FootballFetcher:
                         "scorers": data["response"],
                         "count": len(data["response"])
                     }
+                    
+                    # Add league metadata if available
+                    if league_metadata:
+                        league_top_scorers.update(league_metadata)
+                        self.logger.info(f"✅ Successfully fetched {len(data['response'])} top scorers for league {league_id} ({league_metadata.get('name', 'Unknown')})")
+                    else:
+                        self.logger.warning(f"Could not extract league metadata for league {league_id}")
+                        league_top_scorers["name"] = "Unknown"
+                        self.logger.info(f"✅ Successfully fetched {len(data['response'])} top scorers for league {league_id}")
 
                     results.append(league_top_scorers)
-                    self.logger.info(f"✅ Successfully fetched {len(data['response'])} top scorers for league {league_id}")
                 else:
                     self.logger.warning(f"No top scorers data available for league {league_id}")
                     results.append({
                         "league_id": league_id,
                         "season": current_year,
                         "scorers": [],
-                        "count": 0
+                        "count": 0,
+                        "name": "Unknown"
                     })
                     
             except Exception as e:

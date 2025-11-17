@@ -46,14 +46,15 @@ class FirestoreManager:
         """
         Updates data in a specific document in a Firestore collection.
         If the document doesn't exist, it will be created.
+        Uses set() with merge=True instead of update() to properly handle empty arrays.
         """
         try:
             doc_ref = self.db.collection(collection_name).document(document_id)
             doc = doc_ref.get()
             
             if doc.exists:
-                # Document exists, update it
-                doc_ref.update(data)
+                # Document exists, use set with merge to preserve empty arrays
+                doc_ref.set(data, merge=True)
                 self.logger.info(f"Updated existing document {document_id} in collection {collection_name}")
             else:
                 # Document doesn't exist, create it
